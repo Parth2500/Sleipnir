@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "DotNet Download Manager": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
