@@ -14,6 +14,7 @@ public class DownloadService : IDownloadService
     private readonly INetworkClient _networkClient;
     private readonly IFileStorage _fileStorage;
     private readonly ConcurrentDictionary<Guid, DownloadTask> _downloads = new();
+    private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _downloadCancellations = new();
     private const int BufferSize = 8192; // 8KB buffer
 
     public DownloadService(INetworkClient networkClient, IFileStorage fileStorage)
@@ -24,10 +25,27 @@ public class DownloadService : IDownloadService
 
     public async Task<Guid> AddDownloadAsync(string url, string outputDirectory)
     {
-        var filename = Path.GetFileName(new Uri(url).LocalPath);
-        if (string.IsNullOrEmpty(filename))
+        var uri = new Uri(url);
+        string filename;
+        
+        // Try to extract filename from query parameters first (e.g., ?filename=xyz)
+        var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var filenameParam = queryParams["filename"];
+        
+        if (!string.IsNullOrEmpty(filenameParam))
         {
-            filename = "downloaded_file";
+            // Check if there's an extension parameter
+            var extParam = queryParams["ext"];
+            filename = !string.IsNullOrEmpty(extParam) ? $"{filenameParam}.{extParam}" : filenameParam;
+        }
+        else
+        {
+            // Fallback to path-based extraction
+            filename = Path.GetFileName(uri.LocalPath);
+            if (string.IsNullOrEmpty(filename) || filename == "/")
+            {
+                filename = "downloaded_file";
+            }
         }
         
         var destinationPath = Path.Combine(outputDirectory, filename);
@@ -43,7 +61,9 @@ public class DownloadService : IDownloadService
 
         _downloads.TryAdd(downloadTask.Id, downloadTask);
         
-        _ = StartDownloadLoop(downloadTask);
+        var cts = new CancellationTokenSource();
+        _downloadCancellations[downloadTask.Id] = cts;
+        _ = StartDownloadLoop(downloadTask, cts.Token);
 
         return downloadTask.Id;
     }
@@ -60,6 +80,12 @@ public class DownloadService : IDownloadService
                     segment.Status = DownloadStatus.Paused;
                 }
             }
+            
+            // Cancel the running download loop
+            if (_downloadCancellations.TryGetValue(downloadId, out var cts))
+            {
+                cts.Cancel();
+            }
         }
         return Task.CompletedTask;
     }
@@ -70,15 +96,24 @@ public class DownloadService : IDownloadService
         {
              if(task.Status == DownloadStatus.Paused)
              {
-                 task.Status = DownloadStatus.Queued; 
-                 // Restart the loop. 
-                 _ = StartDownloadLoop(task); 
+                 task.Status = DownloadStatus.Queued;
+                 
+                 // Cancel any existing download loop (shouldn't exist, but safety check)
+                 if (_downloadCancellations.TryRemove(downloadId, out var oldCts))
+                 {
+                     oldCts.Dispose();
+                 }
+                 
+                 // Create new cancellation token and restart
+                 var newCts = new CancellationTokenSource();
+                 _downloadCancellations[downloadId] = newCts;
+                 _ = StartDownloadLoop(task, newCts.Token); 
              }
         }
         return Task.CompletedTask;
     }
 
-    private async Task StartDownloadLoop(DownloadTask task)
+    private async Task StartDownloadLoop(DownloadTask task, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -128,13 +163,20 @@ public class DownloadService : IDownloadService
                         segment.Status = DownloadStatus.Downloading; 
                     }
                     var downloader = new SegmentDownloader(_networkClient, _fileStorage);
-                    return downloader.DownloadSegmentAsync(task.Url, tempFilePath, segment);
+                    return downloader.DownloadSegmentAsync(task.Url, tempFilePath, segment, cancellationToken);
                 });
 
             var downloadTask = Task.WhenAll(downloaders);
-            var monitorTask = MonitorProgress(task);
+            var monitorTask = MonitorProgress(task, cancellationToken);
             
             await Task.WhenAny(downloadTask, monitorTask);
+            
+            // Check if cancelled
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return; // Exit cleanly
+            }
+            
             await downloadTask; 
 
             if (task.Status != DownloadStatus.Cancelled && task.Status != DownloadStatus.Paused)
@@ -148,28 +190,30 @@ public class DownloadService : IDownloadService
                         await _fileStorage.DeleteAsync(task.DestinationPath);
                     }
                     
-                    // We need a Move/Rename method in IFileStorage, but for now we can use File.Move since LocalFileStorage is local.
-                    // But to adhere to interface, we should add MoveAsync. 
-                    // For this step, I will hack it using System.IO directly or Cast, but let's just use System.IO here for brevity or add to interface.
-                    // Implementation Plan didn't specify changing Interface, but I should.
-                    // However, to avoid complexity, I will just assume LocalFileStorage for this rename or add it to the LocalFileStorage class logic if accessible.
-                    // Actually, I'll use File.Move here. It's an infrastructure concern leaking, but acceptable for this prototype stage.
-                    
                     File.Move(tempFilePath, task.DestinationPath);
                     task.Status = DownloadStatus.Completed;
                 }
             }
+            
+            // Cleanup cancellation token
+            _downloadCancellations.TryRemove(task.Id, out _);
+        }
+        catch (OperationCanceledException)
+        {
+            // Download was cancelled/paused - this is expected
+            _downloadCancellations.TryRemove(task.Id, out _);
         }
         catch (Exception ex)
         {
             task.Status = DownloadStatus.Failed;
             task.ErrorMessage = ex.Message;
+            _downloadCancellations.TryRemove(task.Id, out _);
         }
     }
 
-    private async Task MonitorProgress(DownloadTask task)
+    private async Task MonitorProgress(DownloadTask task, CancellationToken cancellationToken = default)
     {
-        while (task.Status == DownloadStatus.Downloading)
+        while (task.Status == DownloadStatus.Downloading && !cancellationToken.IsCancellationRequested)
         {
             long total = 0;
             foreach (var seg in task.Segments)
@@ -177,7 +221,7 @@ public class DownloadService : IDownloadService
                 total += seg.BytesDownloaded;
             }
             task.BytesDownloaded = total;
-            await Task.Delay(100);
+            await Task.Delay(100, cancellationToken);
             
             if (task.Segments.All(s => s.Status == DownloadStatus.Completed))
             {
@@ -191,6 +235,15 @@ public class DownloadService : IDownloadService
         if (_downloads.TryGetValue(downloadId, out var task))
         {
             task.Status = DownloadStatus.Cancelled;
+            foreach (var segment in task.Segments)
+            {
+                if (segment.Status == DownloadStatus.Downloading || 
+                    segment.Status == DownloadStatus.Queued || 
+                    segment.Status == DownloadStatus.Paused)
+                {
+                    segment.Status = DownloadStatus.Cancelled;
+                }
+            }
         }
         return Task.CompletedTask;
     }

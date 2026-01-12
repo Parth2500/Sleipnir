@@ -18,14 +18,13 @@ public class SegmentDownloader
         _fileStorage = fileStorage;
     }
 
-    public async Task DownloadSegmentAsync(string url, string destinationPath, DownloadSegment segment)
+    public async Task DownloadSegmentAsync(string url, string destinationPath, DownloadSegment segment, CancellationToken cancellationToken = default)
     {
         try
         {
             segment.Status = DownloadStatus.Downloading;
             
-            // Resume support: Start from where we left off if partially downloaded
-            // For now, simple start from beginning of segment
+            // Calculate where to start downloading from
             var currentStart = segment.StartOffset + segment.BytesDownloaded;
             
             if (currentStart > segment.EndOffset)
@@ -40,39 +39,56 @@ public class SegmentDownloader
             var buffer = new byte[BufferSize];
             int bytesRead;
             var memoryBuffer = new MemoryStream();
-            long totalBytesReadInLoop = 0;
+            long totalBytesReadInThisSession = 0; // Track bytes read in THIS download session only
+            long remainingBytes = segment.TotalBytes - segment.BytesDownloaded; // How many bytes left to download
 
-            while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            while (remainingBytes > 0 && (bytesRead = await stream.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, remainingBytes), cancellationToken)) > 0)
             {
+                // Check cancellation first
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                
                 if (segment.Status == DownloadStatus.Paused || segment.Status == DownloadStatus.Cancelled)
                 {
                     break;
                 }
 
-                await memoryBuffer.WriteAsync(buffer, 0, bytesRead);
-                segment.BytesDownloaded += bytesRead;
-                totalBytesReadInLoop += bytesRead;
+                await memoryBuffer.WriteAsync(buffer, 0, bytesRead, cancellationToken);
+                totalBytesReadInThisSession += bytesRead;
+                
+                // Update the segment's total downloaded bytes
+                segment.BytesDownloaded = (currentStart - segment.StartOffset) + totalBytesReadInThisSession;
+                
+                // Update remaining bytes
+                remainingBytes = segment.TotalBytes - segment.BytesDownloaded;
 
                 // Flush logic (similar to previous single threaded, but now per segment)
-                 if (memoryBuffer.Length >= 512 * 1024) // 512KB flush
+                if (memoryBuffer.Length >= 512 * 1024) // 512KB flush
                 {
                     memoryBuffer.Position = 0;
-                    await _fileStorage.WriteAsync(destinationPath, currentStart + totalBytesReadInLoop - memoryBuffer.Length, memoryBuffer);
+                    await _fileStorage.WriteAsync(destinationPath, currentStart + totalBytesReadInThisSession - memoryBuffer.Length, memoryBuffer);
                     memoryBuffer.SetLength(0); 
                 }
             }
 
             // Final flush
-            if (memoryBuffer.Length > 0)
+            if (memoryBuffer.Length > 0 && !cancellationToken.IsCancellationRequested)
             {
                 memoryBuffer.Position = 0;
-                await _fileStorage.WriteAsync(destinationPath, currentStart + totalBytesReadInLoop - memoryBuffer.Length, memoryBuffer);
+                await _fileStorage.WriteAsync(destinationPath, currentStart + totalBytesReadInThisSession - memoryBuffer.Length, memoryBuffer);
             }
 
             if (segment.Status != DownloadStatus.Cancelled && segment.BytesDownloaded >= segment.TotalBytes)
             {
                 segment.Status = DownloadStatus.Completed;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when download is paused/cancelled
+            segment.Status = segment.Status == DownloadStatus.Cancelled ? DownloadStatus.Cancelled : DownloadStatus.Paused;
         }
         catch (Exception)
         {
