@@ -71,6 +71,7 @@ podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
 | [User Guide](docs/USER_GUIDE.md) | Installing, running, using the TUI, troubleshooting |
 | [Architecture](docs/ARCHITECTURE.md) | How downloads work internally, design decisions, limitations |
 | [Development Guide](docs/DEVELOPMENT.md) | Building, testing, project layout, contributing |
+| [Feature Comparison](docs/FEATURE_COMPARISON.md) | DNM vs aria2: what we have, what's planned, candidates to revisit |
 | [Changelog](CHANGELOG.md) | What changed and which bugs were fixed |
 
 ## Project status
