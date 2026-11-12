@@ -34,6 +34,39 @@ podman run -it --rm --security-opt label=disable \
 
 (`docker` works the same way.)
 
+## Production build (Linux)
+
+```bash
+dotnet publish "DotNet Download Manager.csproj" -p:PublishProfile=linux-x64
+# or, without a local .NET 10 SDK:
+podman run --rm --security-opt label=disable -v "$PWD:/src" -w /src \
+  mcr.microsoft.com/dotnet/sdk:10.0 dotnet publish "DotNet Download Manager.csproj" -p:PublishProfile=linux-x64
+```
+
+This produces **`artifacts/linux-x64/dnm`**: one self-contained executable (about 43 MB) that runs
+on 64-bit Linux with glibc and **no .NET installed**. The settings live in
+`Properties/PublishProfiles/linux-x64.pubxml`:
+
+| Setting | Why |
+|---------|-----|
+| `SelfContained` + `PublishSingleFile` | One file, no runtime to install |
+| `EnableCompressionInSingleFile` | Smaller download |
+| `PublishReadyToRun` | Precompiled code for faster start-up |
+| `InvariantGlobalization` | No dependency on `libicu` |
+| `AssemblyName=dnm` | A short command name |
+
+Not trimmed: `System.Text.Json` (the state store) and Spectre.Console use reflection, and trimming
+would risk breaking them.
+
+For a release, package it with a checksum:
+
+```bash
+cd artifacts && mkdir dnm-linux-x64 && cp linux-x64/dnm ../LICENSE ../README.md ../CHANGELOG.md dnm-linux-x64/
+tar -czf dnm-linux-x64.tar.gz dnm-linux-x64 && sha256sum dnm-linux-x64.tar.gz > dnm-linux-x64.tar.gz.sha256
+```
+
+`artifacts/` is gitignored and excluded from the Docker build context.
+
 ## Project layout
 
 ```
@@ -52,8 +85,12 @@ podman run -it --rm --security-opt label=disable \
 │   ├── FileNameResolver.cs    URL → safe, unique file name
 │   └── DownloadOptions.cs     tunables
 ├── UI/
-│   ├── DashboardRenderer.cs   Spectre.Console renderables (pure functions)
-│   └── SpeedTracker.cs        sliding-window speed and ETA
+│   ├── TuiController.cs       UI state and key handling (input box, selection, commands, toasts)
+│   ├── TuiRenderer.cs         whole-screen rendering (pure: state → Spectre.Console renderable)
+│   ├── LineEditor.cs          single-line text input with editing keys
+│   ├── SlashCommands.cs       /commands, prefix parsing and autocomplete
+│   ├── SpeedTracker.cs        sliding-window speed and ETA
+│   └── Format.cs              bytes, durations, fit-to-width
 ├── Program.cs                 composition root, key/render loop, signal handling
 ├── tests/DotNetDownloadManager.Tests/
 └── docs/
@@ -75,7 +112,9 @@ For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | `HttpNetworkClientTests` | 200-vs-206 validation, HEAD/probe fallback, unknown size, 429/503 + `Retry-After`, timeouts reported as timeouts, User-Agent (stub `HttpMessageHandler`) |
 | `HappyEyeballsTests` | Address interleaving, a hanging address doesn't block, fast failure moves on, losers cancelled, caller cancellation |
 | `SpeedTrackerTests` | Sliding-window speed, ETA, unknown size, restarts, non-running downloads |
-| `DashboardRendererTests` | Markup characters render literally, unknown size, queued label, speed/ETA, size-unknown crash regression |
+| `Tui/LineEditorAndCommandTests` | Editing keys, cursor movement, word/line deletion; command suggestions and prefix parsing |
+| `Tui/TuiControllerTests` | Paste-to-add (incl. several URLs), invalid input, selection and default selection, Space pause/resume, details, Del confirmation, Ctrl+C clear/quit, suggestions + Tab, commands, help, toasts |
+| `Tui/TuiRendererTests` | Empty state, rows, speed/ETA, header, escaping, details, unknown size, waiting segments, suggestions, help, toasts, narrow terminals, scrolling, fits the terminal height |
 | `EndToEndTests` | Real HTTP over loopback (`HttpListener`), with and without range support, slow body vs header timeout |
 
 ### Test helpers
@@ -85,6 +124,9 @@ For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
   an `OnRequest` hook to throw or substitute a stream per request, and `OnProbe` to fail probes. `Stalling(from, n)` builds a stream that sends `n` bytes and then
   blocks until cancelled, which is how pause and cancel are simulated. It also tracks `OpenStreams`
   and `RequestCount`.
+- **`Tui/StubDownloadService`** is an in-memory `IDownloadService` that records calls, used to test
+  the UI without any network. **`Tui/Keys`** builds `ConsoleKeyInfo` values the way a terminal sends
+  them.
 - **`TempDir`** is a throwaway directory that is deleted on dispose.
 - **`TestHelpers.WaitUntil`** polls a condition, because downloads run in the background.
 

@@ -1,6 +1,34 @@
 # Changelog
 
-## Unreleased: Phase 1, "daily driver"
+## Unreleased
+
+### Added: new interface
+
+- **Full-screen, keyboard-first TUI** in the style of chat-like terminal apps. A list of downloads
+  (status, name, progress bar, percentage, speed and ETA in one row) above an **input box that is
+  always there**: paste a URL and press Enter. Pasting several URLs adds them all.
+- **`/` commands with autocomplete**: `/add`, `/pause`, `/resume`, `/cancel`, `/clear`, `/help`,
+  `/quit`. ↑↓ choose, Tab completes, unambiguous prefixes work (`/pa`).
+- **Keys that don't fight with typing**: ↑↓ Space Enter Del ? act on the selection only while the
+  input is empty. Del and Ctrl+C ask for a second press.
+- **Expandable details** (Enter): URL, destination, progress, and every segment. Segments between
+  retries show "waiting".
+- Help screen, fading confirmation/error messages, context-sensitive hint line, scrolling list,
+  narrow-terminal support, alternate screen (the shell is restored on exit).
+- **Production Linux build**: `-p:PublishProfile=linux-x64` creates a single self-contained `dnm`
+  executable that needs no .NET install.
+- `IDownloadService.RemoveDownloadAsync`, used by `/clear` to forget finished downloads (files kept).
+
+### Fixed
+
+- Percentages could show one less than the truth (`580/1000` displayed as 57%) because of
+  floating-point truncation.
+
+### Removed
+
+- The old two-panel dashboard (`DashboardRenderer`) and its N/P/R/C/Q single-letter keys.
+
+## Phase 1, "daily driver" (committed 257337a)
 
 ### Added
 

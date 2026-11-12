@@ -118,3 +118,10 @@ ipch/
 
 # Temporary files
 .dnm
+
+# Local tool state (brainstorm mockups, design-check config)
+.superpowers/
+.impeccable/
+
+# Production builds
+artifacts/

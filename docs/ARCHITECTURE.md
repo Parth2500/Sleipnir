@@ -13,9 +13,12 @@
 
 ```mermaid
 flowchart TD
-    Program["Program.cs<br/>(input loop, signals)"] --> UI["UI/DashboardRenderer<br/>UI/SpeedTracker"]
-    Program --> IDS["IDownloadService"]
-    UI --> IDS
+    Program["Program.cs<br/>(render loop, signals)"] --> TC["UI/TuiController<br/>(state + keys)"]
+    Program --> TR["UI/TuiRenderer<br/>(state → screen)"]
+    TC --> LE["UI/LineEditor<br/>UI/SlashCommands"]
+    TR --> TC
+    TR --> SPD["UI/SpeedTracker"]
+    TC --> IDS["IDownloadService"]
     IDS -.implemented by.-> DS["Services/DownloadService<br/>(queue, runs, retry policy, persistence)"]
     DS --> SD["Services/SegmentDownloader"]
     DS --> FNR["Services/FileNameResolver"]
@@ -35,7 +38,7 @@ flowchart TD
 | `Core/Interfaces` | `IDownloadService`, `INetworkClient`, `IFileStorage`, `IDownloadStateStore`, `RangeNotSupportedException`, `ServerBusyException` | Models |
 | `Services` | Download orchestration, segment downloading, file naming, options | Core |
 | `Infrastructure` | `HttpClient`, file system, and JSON implementations of the interfaces | Core |
-| `UI` | Pure functions that turn download state into Spectre.Console renderables; speed measurement | Core |
+| `UI` | Interactive state and key handling (`TuiController`, `LineEditor`, `SlashCommands`), screen rendering (`TuiRenderer`), speed measurement | Core |
 | `Program.cs` | Composition root, the keyboard/render loop, signal handling | everything |
 
 ## Download lifecycle
@@ -205,7 +208,7 @@ because download threads write them and the UI thread reads them.
   are re-queued and start automatically. `Paused`, `Failed` and finished downloads keep their status.
   Only the 200 most recent finished downloads are kept.
 - **If the `.dnm` file is gone**, the run notices, recreates it and starts that download over.
-- **Shutdown** (`ShutdownAsync`, from `Q`, Ctrl+C, SIGTERM, SIGHUP): stop accepting new runs, stop
+- **Shutdown** (`ShutdownAsync`, from Ctrl+C twice, `/quit`, SIGTERM, SIGHUP): stop accepting new runs, stop
   every run with `Reason = Shutdown` (each one flushes its buffers), then save everything.
 
 **Crash safety:** because only `PersistedBytes` is saved, the state on disk never runs ahead of the
@@ -234,18 +237,31 @@ stateDiagram-v2
 
 ## The UI
 
-`Program.cs` restores the previous session, then runs a Spectre.Console `Live` display. Every 100 ms
-it rebuilds the layout from `IDownloadService` state, feeds `SpeedTracker`, and polls
-`Console.KeyAvailable`. To prompt for a URL, it leaves the live display, calls `AnsiConsole.Ask`, then
-re-enters it.
+A full-screen, keyboard-first interface modelled on chat-style terminal apps: a list above, an input
+box always at the bottom, context-sensitive hints underneath.
 
-**Exit paths:** `Q`, `SIGINT` (Ctrl+C), `SIGTERM` (`kill`, `podman stop`) and `SIGHUP` (terminal
-closed) are registered with `PosixSignalRegistration`. They set a flag so the loop exits and calls
-`ShutdownAsync`. A second Ctrl+C exits immediately.
+```
+Program.cs loop (every 50 ms)
+  ├─ Console.ReadKey × everything available ──▶ TuiController.HandleKeyAsync   (state changes, service calls)
+  ├─ SpeedTracker.Update
+  └─ Live.UpdateTarget(TuiRenderer.Render(controller, speeds, width, height))
+```
 
-`DashboardRenderer` is a set of pure functions (state in, renderable out), which keeps them unit
-testable. Any text that comes from a URL or server (file names, error messages) **must** go through
-`Markup.Escape`.
+- **`TuiController`** owns the UI state: the input (`LineEditor`), selection, expanded row, help
+  flag, suggestion index, toasts, and the double-press confirmations for Del and Ctrl+C. Its clock is
+  injectable for tests. Keys go to the input box **unless it is empty**, in which case ↑↓ / Space /
+  Enter / Del / ? act on the selection. This avoids single-letter shortcuts that would fight with
+  typing. Plain text is treated as URLs (whitespace-separated, so a multi-URL paste adds them all);
+  `/`-prefixed text is a command (`SlashCommands`, with unambiguous-prefix matching).
+- **`TuiRenderer`** is pure: state in, `IRenderable` out. Every line is fitted to the terminal width
+  (`Format.Fit`, never the last column). The list scrolls to keep the selection visible, and the body
+  is padded so the input box sits at the bottom. Percentages use integer maths, so they never round
+  up or show floating-point artefacts. Any text that comes from a URL or server **must** go through
+  `Markup.Escape`.
+- **`Program.cs`** switches to the terminal's alternate screen (restored on exit) and sets
+  `Console.TreatControlCAsInput` so Ctrl+C reaches the controller as a key. `SIGTERM` (`kill`,
+  `podman stop`), `SIGHUP` (terminal closed), and `SIGINT` as a fallback are registered with
+  `PosixSignalRegistration`. All exit paths end in `ShutdownAsync`.
 
 `SpeedTracker` keeps `(time, bytes)` samples for each running download over a 5 s sliding window.
 Speed = bytes gained ÷ time elapsed across the window. ETA = remaining ÷ speed, and is unknown

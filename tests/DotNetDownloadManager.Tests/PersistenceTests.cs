@@ -136,6 +136,37 @@ public class PersistenceTests
     }
 
     [Fact]
+    public async Task Removing_a_finished_download_forgets_it_but_keeps_the_file()
+    {
+        using var dir = new TempDir();
+        var store = new JsonDownloadStateStore(dir.File("state"));
+        var service = new DownloadService(new FakeNetworkClient(TestHelpers.RandomBytes(5_000)), new LocalFileStorage(), Options(), store);
+        var id = await service.AddDownloadAsync(Url, dir.Path);
+        Assert.True(await TestHelpers.WaitUntil(() => service.GetDownload(id)!.Status == DownloadStatus.Completed));
+        var path = service.GetDownload(id)!.DestinationPath;
+
+        await service.RemoveDownloadAsync(id);
+
+        Assert.Null(service.GetDownload(id));
+        Assert.Empty(await store.LoadAllAsync());
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task Active_downloads_cannot_be_removed()
+    {
+        using var dir = new TempDir();
+        var service = new DownloadService(StallingNetwork(TestHelpers.RandomBytes(100_000), 1_000), new LocalFileStorage(), Options());
+        var id = await service.AddDownloadAsync(Url, dir.Path);
+        Assert.True(await TestHelpers.WaitUntil(() => service.GetDownload(id)!.Status == DownloadStatus.Downloading));
+
+        await service.RemoveDownloadAsync(id);
+
+        Assert.NotNull(service.GetDownload(id));
+        await service.CancelDownloadAsync(id);
+    }
+
+    [Fact]
     public async Task Completed_downloads_stay_in_history_after_a_restart()
     {
         using var dir = new TempDir();

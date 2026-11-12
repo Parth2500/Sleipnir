@@ -1,164 +1,83 @@
-﻿using Spectre.Console;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
+using DotNetDownloadManager.Core.Models;
 using DotNetDownloadManager.Infrastructure.Network;
 using DotNetDownloadManager.Infrastructure.Persistence;
 using DotNetDownloadManager.Infrastructure.Storage;
 using DotNetDownloadManager.Services;
-using DotNetDownloadManager.Core.Models;
 using DotNetDownloadManager.UI;
-using Spectre.Console.Rendering;
+using Spectre.Console;
 
-// --- Initialize Services ---
-var network = new HttpNetworkClient();
-var storage = new LocalFileStorage();
+// --- Composition root ---
 var stateStore = new JsonDownloadStateStore(JsonDownloadStateStore.DefaultDirectory());
-var downloadService = new DownloadService(network, storage, new DownloadOptions(), stateStore);
+var downloadService = new DownloadService(new HttpNetworkClient(), new LocalFileStorage(), new DownloadOptions(), stateStore);
+var outputDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+var ui = new TuiController(downloadService, outputDirectory);
 var speeds = new SpeedTracker();
 
 // Bring back downloads from the previous session; interrupted ones resume automatically.
 await downloadService.RestoreAsync();
 
-// Create the main dashboard layout
-var layout = new Layout("Root")
-    .SplitRows(
-        new Layout("Header").Size(10),
-        new Layout("Body"),
-        new Layout("Footer").Size(3));
-
-layout["Body"].SplitColumns(
-    new Layout("Left"),
-    new Layout("Right"));
-
-// Track current download: start with the most recent one, if any
-Guid? currentDownloadId = downloadService.GetAllDownloads()
-    .OrderByDescending(d => d.CreatedAt)
-    .Select(d => (Guid?)d.Id)
-    .FirstOrDefault();
-var shouldExit = false;
-bool needsInput = false;
-
-// Ctrl+C, `kill`/`podman stop` (SIGTERM) and closing the terminal (SIGHUP) exit gracefully, saving progress.
-// A second Ctrl+C while shutting down exits immediately.
-void RequestExit(PosixSignalContext context)
+// SIGTERM (`kill`, `podman stop`) and SIGHUP (terminal closed) exit gracefully, saving progress.
+// Ctrl+C is read as a key so the UI can ask for confirmation; SIGINT is the fallback if that isn't possible.
+var exitSignalled = false;
+void OnSignal(PosixSignalContext context)
 {
-    if (Volatile.Read(ref shouldExit)) return;
     context.Cancel = true;
-    Volatile.Write(ref shouldExit, true);
+    Volatile.Write(ref exitSignalled, true);
 }
-using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, RequestExit);
-using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, RequestExit);
-using var sigHup = PosixSignalRegistration.Create(PosixSignal.SIGHUP, RequestExit);
+using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, OnSignal);
+using var sigHup = PosixSignalRegistration.Create(PosixSignal.SIGHUP, OnSignal);
+using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, OnSignal);
 
-// Initialize layout with content BEFORE starting Live display
-layout["Header"].Update(DashboardRenderer.BuildHeader());
-layout["Left"].Update(DashboardRenderer.BuildCurrentDownloadPanel(downloadService, currentDownloadId, speeds));
-layout["Right"].Update(DashboardRenderer.BuildHistoryPanel(downloadService, speeds));
-layout["Footer"].Update(DashboardRenderer.BuildFooter(downloadService, currentDownloadId, speeds));
-
-while (!Volatile.Read(ref shouldExit))
+var interactive = !Console.IsInputRedirected;
+if (interactive)
 {
-    await AnsiConsole.Live(layout)
-        .AutoClear(false)
+    try { Console.TreatControlCAsInput = true; } catch (IOException) { /* keep the SIGINT fallback */ }
+}
+
+(int Width, int Height) TerminalSize()
+{
+    try { return (Console.WindowWidth, Console.WindowHeight); }
+    catch (IOException) { return (100, 30); }
+}
+
+// Full-screen app: draw on the terminal's alternate screen so the shell is restored on exit.
+var alternateScreen = AnsiConsole.Profile.Capabilities.Ansi && interactive;
+if (alternateScreen) Console.Write("\x1b[?1049h\x1b[H");
+
+try
+{
+    var size = TerminalSize();
+    await AnsiConsole.Live(TuiRenderer.Render(ui, speeds, size.Width, size.Height))
+        .AutoClear(true)
+        .Overflow(VerticalOverflow.Crop)
+        .Cropping(VerticalOverflowCropping.Bottom)
         .StartAsync(async ctx =>
         {
-            while (!Volatile.Read(ref shouldExit) && !needsInput)
+            while (!ui.QuitRequested && !Volatile.Read(ref exitSignalled))
             {
-                speeds.Update(downloadService.GetAllDownloads(), DateTime.UtcNow);
-
-                // Update Header
-                layout["Header"].Update(DashboardRenderer.BuildHeader());
-
-                // Update Left Panel - Current Download
-                layout["Left"].Update(DashboardRenderer.BuildCurrentDownloadPanel(downloadService, currentDownloadId, speeds));
-
-                // Update Right Panel - History
-                layout["Right"].Update(DashboardRenderer.BuildHistoryPanel(downloadService, speeds));
-
-                // Update Footer - Input/Controls
-                layout["Footer"].Update(DashboardRenderer.BuildFooter(downloadService, currentDownloadId, speeds));
-
-                ctx.Refresh();
-
-                // Check for keyboard input
-                if (Console.KeyAvailable)
+                // Handle everything typed (or pasted) since the last frame.
+                while (interactive && Console.KeyAvailable)
                 {
-                    var key = Console.ReadKey(true);
-
-                    // Handle download controls
-                    if (currentDownloadId.HasValue)
-                    {
-                        if (key.Key == ConsoleKey.P)
-                        {
-                            await downloadService.PauseDownloadAsync(currentDownloadId.Value);
-                        }
-                        else if (key.Key == ConsoleKey.R)
-                        {
-                            await downloadService.ResumeDownloadAsync(currentDownloadId.Value);
-                        }
-                        else if (key.Key == ConsoleKey.C)
-                        {
-                            await downloadService.CancelDownloadAsync(currentDownloadId.Value);
-                        }
-                    }
-
-                    // Select another download (same order as the history panel)
-                    if (key.Key is ConsoleKey.UpArrow or ConsoleKey.DownArrow)
-                    {
-                        var ids = downloadService.GetAllDownloads()
-                            .OrderByDescending(d => d.CreatedAt)
-                            .Take(10)
-                            .Select(d => d.Id)
-                            .ToList();
-                        if (ids.Count > 0)
-                        {
-                            var index = currentDownloadId.HasValue ? ids.IndexOf(currentDownloadId.Value) : -1;
-                            index = key.Key == ConsoleKey.UpArrow ? index - 1 : index + 1;
-                            currentDownloadId = ids[(index % ids.Count + ids.Count) % ids.Count];
-                        }
-                    }
-
-                    // Handle new download (N key)
-                    if (key.Key == ConsoleKey.N)
-                    {
-                        needsInput = true;
-                        break; // Exit live display to get input
-                    }
-
-                    // Exit on Q
-                    if (key.Key == ConsoleKey.Q)
-                    {
-                        shouldExit = true;
-                        break;
-                    }
+                    await ui.HandleKeyAsync(Console.ReadKey(intercept: true));
                 }
 
-                await Task.Delay(100);
+                speeds.Update(downloadService.GetAllDownloads(), DateTime.UtcNow);
+                size = TerminalSize();
+                ctx.UpdateTarget(TuiRenderer.Render(ui, speeds, size.Width, size.Height));
+                await Task.Delay(50);
             }
         });
-
-    // Handle input outside of Live display
-    if (needsInput)
-    {
-        needsInput = false;
-        
-        var url = AnsiConsole.Ask<string>("[green]Enter URL to download:[/]");
-        
-        if (!string.IsNullOrWhiteSpace(url) && Uri.TryCreate(url, UriKind.Absolute, out _))
-        {
-            var outputDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), 
-                "Downloads");
-            
-            currentDownloadId = await downloadService.AddDownloadAsync(url, outputDirectory);
-        }
-        else if (!string.IsNullOrWhiteSpace(url))
-        {
-            AnsiConsole.MarkupLine("[red]Invalid URL provided.[/]");
-            await Task.Delay(2000);
-        }
-    }
+}
+finally
+{
+    if (alternateScreen) Console.Write("\x1b[?1049l");
 }
 
 // Stop transfers cleanly: buffered data is flushed and progress saved, so the next start resumes.
-AnsiConsole.MarkupLine("[dim]Saving progress...[/]");
+AnsiConsole.MarkupLine("[grey62]Saving progress…[/]");
 await downloadService.ShutdownAsync();
+var unfinished = downloadService.GetAllDownloads().Count(d => d.Status == DownloadStatus.Queued);
+AnsiConsole.MarkupLine(unfinished > 0
+    ? $"[grey62]{unfinished} download{(unfinished == 1 ? "" : "s")} will resume next time you start DNM.[/]"
+    : "[grey62]Bye.[/]");

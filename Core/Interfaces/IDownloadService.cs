@@ -11,6 +11,9 @@ public interface IDownloadService
     Task PauseDownloadAsync(Guid downloadId);
     Task ResumeDownloadAsync(Guid downloadId);
     Task CancelDownloadAsync(Guid downloadId);
+
+    /// <summary>Removes a finished (completed or cancelled) download from the list and saved history. The file itself is kept.</summary>
+    Task RemoveDownloadAsync(Guid downloadId);
     IEnumerable<DownloadTask> GetAllDownloads();
     DownloadTask? GetDownload(Guid downloadId);
 

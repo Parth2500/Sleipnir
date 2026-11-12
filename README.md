@@ -1,39 +1,60 @@
 # DotNet Download Manager (DNM)
 
-A multi-threaded **download manager for the terminal**, written in C# / .NET 10 with a live
-dashboard built on [Spectre.Console](https://spectreconsole.net/).
+A multi-threaded **download manager for the terminal**, written in C# / .NET 10 with a
+full-screen, keyboard-first interface built on [Spectre.Console](https://spectreconsole.net/).
 
 DNM splits a file into byte ranges, downloads them in parallel over HTTP, and stitches them into
 one file. It can pause, resume (even after a restart), cancel, queue, and retry segments that fail.
 
 ```
-╭─Current Download──────────────────────╮ ╭─Download History─────────────────────╮
-│ File: ubuntu-24.04.iso                │ │ Filename         │ Status   │ Size   │
-│ Status: ⬇ Downloading...              │ │ ubuntu-24.04.iso │ ⬇ 42%    │ 5.7 GB │
-│ Progress: 42.10% (2.4 GB / 5.7 GB)    │ │ sdk.zip          │ ✓ Done   │ 210 MB │
-│ Segments:                             │ │ tools.exe        │ ⏸ Paused │ 12 MB  │
-│ ⬇ Seg 1: 44%   ⬇ Seg 2: 41%           │ ╰──────────────────────────────────────╯
-╰───────────────────────────────────────╯
- N=New  P=Pause  R=Resume  C=Cancel  ↑/↓=Select  Q=Quit
+⬇ DotNet Download Manager  1 active · 10.6 MB/s
+
+   ✓ 1Mb.dat                           done · 1 MB
+ › ↓ 100Mb.dat                         ██████████████████████░░░░░░░░░░░░░░░  59%  10.6 MB/s · 0:03
+       URL       https://proof.ovh.net/files/100Mb.dat
+       Saved to  /root/Downloads/100Mb.dat
+       Progress  59.32 MB of 100 MB (59.3%) · 8 connections
+       Segments  Seg 1 ✓        Seg 2 ✓        Seg 3 29%      Seg 4 ✓
+                 Seg 5 waiting  Seg 6 45%      Seg 7 waiting  Seg 8 ✓
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+│ >  Paste a URL, or type / for commands                                                       │
+╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+  ↑↓ select · Space pause/resume · Enter details · Del cancel · ? for help
 ```
 
 ## Quick start
+
+**Prebuilt binary (64-bit Linux, no .NET needed):** build it with
+`dotnet publish -p:PublishProfile=linux-x64` (see [Development Guide](docs/DEVELOPMENT.md#production-build-linux)), then:
+
+```bash
+install -m 755 artifacts/linux-x64/dnm ~/.local/bin/dnm   # make sure ~/.local/bin is on your PATH
+dnm
+```
+
+**From source:**
 
 ```bash
 # Requires the .NET 10 SDK (Fedora: sudo dnf install dotnet-sdk-10.0)
 dotnet run --project "DotNet Download Manager.csproj"
 ```
 
-Press **N**, paste a URL, and press Enter. Files are saved to `~/Downloads`.
+**Paste a URL and press Enter.** That's it. Files are saved to `~/Downloads`.
 
-| Key   | Action                                                   |
-|-------|----------------------------------------------------------|
-| `N`   | New download                                             |
-| `P`   | Pause the selected download                              |
-| `R`   | Resume the selected download (also retries failed ones)  |
-| `C`   | Cancel the selected download and delete its partial file |
-| `↑/↓` | Select another download from the history                 |
-| `Q`   | Quit (running downloads resume on next start)            |
+With the input box empty, a few keys work on the selected download:
+
+| Key | Action |
+|-----|--------|
+| `↑` `↓` | Select a download |
+| `Space` | Pause / resume (also retries a failed one) |
+| `Enter` | Show / hide details (segments, path, errors) |
+| `Del` `Del` | Cancel and delete the partial file |
+| `?` | Help |
+| `Ctrl+C` `Ctrl+C` | Quit; running downloads resume next time |
+
+Or type `/` for commands with autocomplete: `/add`, `/pause`, `/resume`, `/cancel`, `/clear`,
+`/help`, `/quit`.
 
 Running in a container (Podman shown; Docker instructions are in the [User Guide](docs/USER_GUIDE.md#podman--docker)):
 
@@ -61,7 +82,9 @@ podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
 - Downloads of unknown size (servers that don't send `Content-Length`)
 - Safe file naming: names from the URL are sanitized (no path traversal) and existing files are
   never overwritten (`file (1).zip`, `file (2).zip`, …)
-- Live dashboard with per-segment progress and a persistent history
+- Full-screen, keyboard-first interface: paste-to-download input box, `/` commands with
+  autocomplete, expandable details, help screen, and short confirmations
+- Persistent history; `/clear` tidies finished downloads away (files are kept)
 
 **Planned** — see the [roadmap](https://github.com/Parth2500/DotNet-Download-Manager/issues/1)
 

@@ -46,47 +46,80 @@ docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/dnm \
   without relabelling your real Downloads folder, which `:Z` would do.
 - `-v dnm-state:…` keeps DNM's saved download list in a named volume, so downloads resume and
   history survives between container runs. Without it, every run starts empty.
-- `podman stop` / `docker stop` shut DNM down gracefully and save progress, just like pressing `Q`.
+- `podman stop` / `docker stop` shut DNM down gracefully and save progress, just like quitting.
 
-## The dashboard
+## The screen
+
+DNM takes over the terminal (like `htop` or `less`) and gives it back when you quit.
 
 | Area | Shows |
 |------|-------|
-| Header | App title and key bindings |
-| Current Download (left) | The selected download: file name, status, progress, speed, time remaining (ETA), and each segment's progress |
-| Download History (right) | The 10 most recent downloads, newest first (kept across restarts) |
-| Footer | The selected download's status, how many downloads are active, and the total speed |
+| Header | How many downloads are active and the total speed |
+| List | Every download, newest first: status icon, name, progress bar, percentage, speed and time remaining. The selected one is marked with `›` |
+| Details | Press `Enter` on a download to expand it: URL, where it's saved, progress, and every segment (connection) |
+| Messages | Short confirmations or errors ("Added movie.mkv", "That doesn't look like a URL") that fade after a few seconds |
+| Input box | Paste a URL here, or type `/` for commands |
+| Hints | The keys that work right now. They change as you type |
+
+### Adding downloads
+
+Paste a URL into the input box and press `Enter`. Paste several URLs at once (separated by
+spaces or new lines) and DNM adds them all. `/add <url>` does the same.
 
 ### Keys
 
+These work when the input box is **empty**. Once you start typing, every key goes into the box.
+
 | Key | Action |
 |-----|--------|
-| `N` | Start a new download. The dashboard is replaced by a prompt; paste the URL and press Enter. |
-| `P` | Pause the selected download. Bytes already received are kept. |
-| `R` | Resume the selected download. Also restarts a **failed** download from where it stopped. |
-| `C` | Cancel the selected download. Transfers stop immediately and the partial file is deleted. |
-| `↑` / `↓` | Select another download (same order as the history panel). |
-| `Q` | Quit. Running downloads are stopped cleanly and **resume automatically** the next time you start DNM. `Ctrl+C` does the same; press it twice to exit immediately. |
+| `↑` / `↓` (`PgUp` / `PgDn`) | Select a download |
+| `Space` | Pause the selected download, or resume it (also retries a **failed** one) |
+| `Enter` | Show or hide its details |
+| `Del` then `Del` | Cancel it. Transfers stop immediately and the partial file is deleted. The second press confirms |
+| `?` | Help |
+| `Esc` | Clear the input box, or close details |
+| `Ctrl+C` | Clear the input box. On an empty box, press it **twice** to quit |
+
+While typing, the usual editing keys work: `←` `→`, `Home` / `End` (or `Ctrl+A` / `Ctrl+E`),
+`Backspace`, `Delete`, `Ctrl+W` (delete word), `Ctrl+U` / `Ctrl+K` (delete to start / end).
+
+### Commands
+
+Type `/` and a menu appears. Keep typing to filter it, `↑` `↓` to choose, `Tab` to complete,
+`Enter` to run. Short forms work too (`/pa` is `/pause`).
+
+| Command | Does |
+|---------|------|
+| `/add <url>` | Download a URL |
+| `/pause` | Pause the selected download |
+| `/resume` | Resume or retry the selected download |
+| `/cancel` | Cancel the selected download and delete its partial file |
+| `/clear` | Remove finished (completed and cancelled) downloads from the list. The files stay on disk |
+| `/help` | Show keys and commands |
+| `/quit` | Save progress and exit |
 
 ### Statuses
 
 | Status | Meaning |
 |--------|---------|
-| ○ Queued | Waiting for a free slot (at most 3 downloads run at once), or about to contact the server |
-| ⬇ Downloading | Transferring data |
-| ⏸ Paused | Stopped by you; press `R` to continue |
-| ✓ Complete | The file is in its final location |
-| ✗ Failed | A segment failed after all retries; the error is shown. Press `R` to try again |
-| ✗ Cancelled | Stopped by you; the partial file has been removed |
+| ○ queued | Waiting for a free slot (at most 3 downloads run at once), or about to contact the server |
+| ↓ (progress bar) | Transferring data |
+| ‖ paused | Stopped by you; press `Space` to continue |
+| ✓ done | The file is in its final location |
+| ✗ failed | Gave up after all retries; the error is shown. Press `Space` to try again |
+| ✗ cancelled | Stopped by you; the partial file has been removed |
+
+In the details, a segment marked **waiting** is pausing between retries, for example because the
+server asked DNM to slow down.
 
 ## Quitting and coming back later
 
-DNM remembers your downloads. When you quit (`Q`, `Ctrl+C`, closing the terminal, or `kill`):
+DNM remembers your downloads. When you quit (`Ctrl+C` twice, `/quit`, closing the terminal, or `kill`):
 
 - **Running** downloads are stopped cleanly: data already received is written to disk, then they are
   marked to **resume automatically** on the next start.
-- **Paused** downloads stay paused; press `R` to continue them.
-- **Failed** downloads stay failed; press `R` to retry.
+- **Paused** downloads stay paused; press `Space` to continue them.
+- **Failed** downloads stay failed; press `Space` to retry.
 - **Finished** downloads stay in the history (the 200 most recent are kept).
 
 Even after a crash or power cut, progress is safe: DNM only records bytes that have actually been
@@ -137,8 +170,8 @@ when a slot frees up.
 | Problem | Cause / fix |
 |---------|-------------|
 | `Failed: Response status code does not indicate success: 403/404…` | The link has expired or needs cookies/login (e.g. links copied from a logged-in browser session). |
-| `Failed: Server is busy (HTTP 429)…` | The server kept rate-limiting after 10 polite retries. Wait a while and press `R`. |
-| `Failed: No data received for 30 s…` / `Timed out connecting…` | The server or network stopped responding, and retries didn't help. Check your connection and press `R`. |
+| `Failed: Server is busy (HTTP 429)…` | The server kept rate-limiting after 10 polite retries. Wait a while and press `Space`. |
+| `Failed: No data received for 30 s…` / `Timed out connecting…` | The server or network stopped responding, and retries didn't help. Check your connection and press `Space`. |
 | Download restarts from 0% after resuming | The server does not support ranges (see above). |
 | Leftover `*.dnm` files in `~/Downloads` | Normally these belong to paused/queued downloads and are resumed. If DNM's saved state was deleted, they are orphans and safe to delete. |
 | Downloads don't come back after restarting the container | Add the `-v dnm-state:…` volume (see [Podman / Docker](#podman--docker)). |

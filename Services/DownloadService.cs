@@ -140,6 +140,21 @@ public class DownloadService : IDownloadService
         await SaveAsync(task);
     }
 
+    public async Task RemoveDownloadAsync(Guid downloadId)
+    {
+        if (!_downloads.TryGetValue(downloadId, out var task)) return;
+        if (task.Status is not (DownloadStatus.Completed or DownloadStatus.Cancelled)) return;
+
+        lock (_gate)
+        {
+            if (_runs.ContainsKey(downloadId)) return;
+            _queue.Remove(downloadId);
+            _downloads.TryRemove(downloadId, out _);
+        }
+
+        if (_stateStore is not null) await _stateStore.DeleteAsync(downloadId);
+    }
+
     public async Task RestoreAsync()
     {
         if (_stateStore is null) return;
