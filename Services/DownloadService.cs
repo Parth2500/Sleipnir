@@ -1,261 +1,282 @@
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using System.Collections.Concurrent;
 using DotNetDownloadManager.Core.Interfaces;
 using DotNetDownloadManager.Core.Models;
 
 namespace DotNetDownloadManager.Services;
 
+/// <summary>
+/// Orchestrates downloads: probes the server, splits the file into segments, runs them in
+/// parallel with retries, and handles pause / resume / cancel.
+/// </summary>
 public class DownloadService : IDownloadService
 {
     private readonly INetworkClient _networkClient;
     private readonly IFileStorage _fileStorage;
+    private readonly DownloadOptions _options;
     private readonly ConcurrentDictionary<Guid, DownloadTask> _downloads = new();
-    private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _downloadCancellations = new();
-    private const int BufferSize = 8192; // 8KB buffer
+    private readonly ConcurrentDictionary<Guid, DownloadRun> _runs = new();
+    private readonly object _gate = new();
 
-    public DownloadService(INetworkClient networkClient, IFileStorage fileStorage)
+    public DownloadService(INetworkClient networkClient, IFileStorage fileStorage, DownloadOptions? options = null)
     {
         _networkClient = networkClient;
         _fileStorage = fileStorage;
+        _options = options ?? new DownloadOptions();
     }
 
-    public async Task<Guid> AddDownloadAsync(string url, string outputDirectory)
+    /// <summary>One execution of a download, from start/resume until it finishes, pauses, or is cancelled.</summary>
+    private sealed class DownloadRun
+    {
+        public CancellationTokenSource Cts { get; } = new();
+        public Task Completion { get; set; } = Task.CompletedTask;
+
+        /// <summary>Why the run was stopped; decides the final status when cancellation is observed.</summary>
+        public volatile bool CancelRequested;
+    }
+
+    public Task<Guid> AddDownloadAsync(string url, string outputDirectory)
     {
         var uri = new Uri(url);
-        string filename;
-        
-        // Try to extract filename from query parameters first (e.g., ?filename=xyz)
-        var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
-        var filenameParam = queryParams["filename"];
-        
-        if (!string.IsNullOrEmpty(filenameParam))
+        var fileName = FileNameResolver.FromUrl(uri);
+
+        DownloadTask task;
+        lock (_gate)
         {
-            // Check if there's an extension parameter
-            var extParam = queryParams["ext"];
-            filename = !string.IsNullOrEmpty(extParam) ? $"{filenameParam}.{extParam}" : filenameParam;
-        }
-        else
-        {
-            // Fallback to path-based extraction
-            filename = Path.GetFileName(uri.LocalPath);
-            if (string.IsNullOrEmpty(filename) || filename == "/")
+            var destination = FileNameResolver.MakeUnique(outputDirectory, fileName, IsPathTaken);
+            task = new DownloadTask
             {
-                filename = "downloaded_file";
-            }
+                Url = url,
+                DestinationPath = destination,
+                Filename = Path.GetFileName(destination),
+                Status = DownloadStatus.Queued,
+            };
+            _downloads[task.Id] = task;
+            StartRun(task);
         }
-        
-        var destinationPath = Path.Combine(outputDirectory, filename);
 
-        // 1. Create Task Entry
-        var downloadTask = new DownloadTask
-        {
-            Url = url,
-            DestinationPath = destinationPath, // This is the FINAL destination
-            Filename = filename,
-            Status = DownloadStatus.Queued
-        };
-
-        _downloads.TryAdd(downloadTask.Id, downloadTask);
-        
-        var cts = new CancellationTokenSource();
-        _downloadCancellations[downloadTask.Id] = cts;
-        _ = StartDownloadLoop(downloadTask, cts.Token);
-
-        return downloadTask.Id;
+        return Task.FromResult(task.Id);
     }
 
-    public Task PauseDownloadAsync(Guid downloadId)
+    public async Task PauseDownloadAsync(Guid downloadId)
     {
-        if (_downloads.TryGetValue(downloadId, out var task))
-        {
-            task.Status = DownloadStatus.Paused;
-            foreach (var segment in task.Segments)
-            {
-                if (segment.Status == DownloadStatus.Downloading || segment.Status == DownloadStatus.Queued)
-                {
-                    segment.Status = DownloadStatus.Paused;
-                }
-            }
-            
-            // Cancel the running download loop
-            if (_downloadCancellations.TryGetValue(downloadId, out var cts))
-            {
-                cts.Cancel();
-            }
-        }
-        return Task.CompletedTask;
+        if (!_downloads.ContainsKey(downloadId)) return;
+        await StopRunAsync(downloadId, cancel: false);
     }
 
-    public Task ResumeDownloadAsync(Guid downloadId)
+    public async Task ResumeDownloadAsync(Guid downloadId)
     {
-        if (_downloads.TryGetValue(downloadId, out var task))
+        if (!_downloads.TryGetValue(downloadId, out var task)) return;
+
+        // Make sure the previous run has fully exited before starting a new one, so two runs never
+        // write the same file.
+        if (_runs.TryGetValue(downloadId, out var previous))
         {
-             if(task.Status == DownloadStatus.Paused)
-             {
-                 task.Status = DownloadStatus.Queued;
-                 
-                 // Cancel any existing download loop (shouldn't exist, but safety check)
-                 if (_downloadCancellations.TryRemove(downloadId, out var oldCts))
-                 {
-                     oldCts.Dispose();
-                 }
-                 
-                 // Create new cancellation token and restart
-                 var newCts = new CancellationTokenSource();
-                 _downloadCancellations[downloadId] = newCts;
-                 _ = StartDownloadLoop(task, newCts.Token); 
-             }
+            await previous.Completion;
         }
-        return Task.CompletedTask;
+
+        lock (_gate)
+        {
+            if (task.Status is not (DownloadStatus.Paused or DownloadStatus.Failed)) return;
+            if (_runs.ContainsKey(downloadId)) return;
+
+            task.Status = DownloadStatus.Queued;
+            task.ErrorMessage = null;
+            StartRun(task);
+        }
     }
 
-    private async Task StartDownloadLoop(DownloadTask task, CancellationToken cancellationToken = default)
+    public async Task CancelDownloadAsync(Guid downloadId)
     {
+        if (!_downloads.TryGetValue(downloadId, out var task)) return;
+        if (task.Status == DownloadStatus.Completed) return;
+
+        await StopRunAsync(downloadId, cancel: true);
+
+        task.Status = DownloadStatus.Cancelled;
+        foreach (var segment in task.Segments)
+        {
+            if (segment.Status != DownloadStatus.Completed)
+            {
+                segment.Status = DownloadStatus.Cancelled;
+            }
+        }
+
+        await _fileStorage.DeleteAsync(task.TempFilePath);
+    }
+
+    public IEnumerable<DownloadTask> GetAllDownloads() => _downloads.Values;
+
+    public DownloadTask? GetDownload(Guid downloadId) => _downloads.TryGetValue(downloadId, out var task) ? task : null;
+
+    // Must be called while holding _gate.
+    private void StartRun(DownloadTask task)
+    {
+        var run = new DownloadRun();
+        _runs[task.Id] = run;
+        run.Completion = Task.Run(() => RunAsync(task, run));
+    }
+
+    private async Task StopRunAsync(Guid downloadId, bool cancel)
+    {
+        DownloadRun? run;
+        lock (_gate)
+        {
+            if (!_runs.TryGetValue(downloadId, out run)) return;
+            if (cancel) run.CancelRequested = true;
+            run.Cts.Cancel();
+        }
+
+        await run.Completion;
+    }
+
+    private bool IsPathTaken(string path) =>
+        _fileStorage.Exists(path) ||
+        _fileStorage.Exists(path + ".dnm") ||
+        _downloads.Values.Any(d => string.Equals(d.DestinationPath, path, StringComparison.Ordinal));
+
+    private async Task RunAsync(DownloadTask task, DownloadRun run)
+    {
+        var token = run.Cts.Token;
         try
         {
             task.Status = DownloadStatus.Downloading;
-            var tempFilePath = task.DestinationPath + ".dnm"; // Temporary file path
-            
-            // 1. Get Metadata (Only if not already known)
-            if (task.TotalBytes == 0)
-            {
-                task.TotalBytes = await _networkClient.GetFileSizeAsync(task.Url);
-            }
 
-            // 2. Allocate File (Only if not already created - simple check)
-            if (!_fileStorage.Exists(tempFilePath))
-            {
-                await _fileStorage.CreateFileAsync(tempFilePath, task.TotalBytes);
-            }
-
-            // 3. Segment Calculation (Only if segments don't exist)
+            // 1. Probe the server once per download.
             if (task.Segments.Count == 0)
             {
-                int segmentCount = 8; 
-                long segmentSize = task.TotalBytes / segmentCount;
-                
-                for (int i = 0; i < segmentCount; i++)
+                var info = await _networkClient.GetFileInfoAsync(task.Url, token);
+                if (info.Size is not long size)
                 {
-                    var start = i * segmentSize;
-                    var end = (i == segmentCount - 1) ? task.TotalBytes - 1 : (start + segmentSize - 1);
-                    
-                    task.Segments.Add(new DownloadSegment
-                    {
-                        Index = i,
-                        StartOffset = start,
-                        EndOffset = end,
-                        Status = DownloadStatus.Queued
-                    });
+                    throw new InvalidOperationException("The server did not report the file size.");
                 }
+                task.TotalBytes = size;
+                task.SupportsRanges = info.SupportsRanges;
             }
 
-            // 4. Download Segments in Parallel
-            var downloaders = task.Segments
-                .Where(s => s.Status != DownloadStatus.Completed)
-                .Select(segment => 
-                {
-                    if (segment.Status == DownloadStatus.Paused || segment.Status == DownloadStatus.Queued)
-                    {
-                        segment.Status = DownloadStatus.Downloading; 
-                    }
-                    var downloader = new SegmentDownloader(_networkClient, _fileStorage);
-                    return downloader.DownloadSegmentAsync(task.Url, tempFilePath, segment, cancellationToken);
-                });
-
-            var downloadTask = Task.WhenAll(downloaders);
-            var monitorTask = MonitorProgress(task, cancellationToken);
-            
-            await Task.WhenAny(downloadTask, monitorTask);
-            
-            // Check if cancelled
-            if (cancellationToken.IsCancellationRequested)
+            // 2. (Re)create the temp file if it is missing; any recorded progress is then invalid.
+            if (!_fileStorage.Exists(task.TempFilePath))
             {
-                return; // Exit cleanly
+                await _fileStorage.CreateFileAsync(task.TempFilePath, task.TotalBytes);
+                task.Segments = Array.Empty<DownloadSegment>();
             }
-            
-            await downloadTask; 
 
-            if (task.Status != DownloadStatus.Cancelled && task.Status != DownloadStatus.Paused)
+            // 3. Download; if the server turns out to ignore ranges, restart as a single stream.
+            try
             {
-                // Verify all segments are done
-                if (task.Segments.All(x => x.Status == DownloadStatus.Completed))
-                {
-                    // Finalization: Rename .dnm to .dest
-                    if (_fileStorage.Exists(task.DestinationPath))
-                    {
-                        await _fileStorage.DeleteAsync(task.DestinationPath);
-                    }
-                    
-                    File.Move(tempFilePath, task.DestinationPath);
-                    task.Status = DownloadStatus.Completed;
-                }
+                await DownloadSegmentsAsync(task, token);
             }
-            
-            // Cleanup cancellation token
-            _downloadCancellations.TryRemove(task.Id, out _);
+            catch (RangeNotSupportedException) when (task.SupportsRanges)
+            {
+                task.SupportsRanges = false;
+                task.Segments = Array.Empty<DownloadSegment>();
+                await DownloadSegmentsAsync(task, token);
+            }
+
+            // 4. Move the finished temp file into place without overwriting anything.
+            string destination;
+            lock (_gate)
+            {
+                destination = _fileStorage.Exists(task.DestinationPath)
+                    ? FileNameResolver.MakeUnique(Path.GetDirectoryName(task.DestinationPath)!, task.Filename, IsPathTaken)
+                    : task.DestinationPath;
+            }
+            var tempPath = task.TempFilePath;
+            _fileStorage.Move(tempPath, destination);
+            task.DestinationPath = destination;
+            task.Filename = Path.GetFileName(destination);
+            task.Status = DownloadStatus.Completed;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            // Download was cancelled/paused - this is expected
-            _downloadCancellations.TryRemove(task.Id, out _);
+            task.Status = run.CancelRequested ? DownloadStatus.Cancelled : DownloadStatus.Paused;
         }
         catch (Exception ex)
         {
             task.Status = DownloadStatus.Failed;
             task.ErrorMessage = ex.Message;
-            _downloadCancellations.TryRemove(task.Id, out _);
         }
-    }
-
-    private async Task MonitorProgress(DownloadTask task, CancellationToken cancellationToken = default)
-    {
-        while (task.Status == DownloadStatus.Downloading && !cancellationToken.IsCancellationRequested)
+        finally
         {
-            long total = 0;
-            foreach (var seg in task.Segments)
+            lock (_gate)
             {
-                total += seg.BytesDownloaded;
+                // Only remove our own entry; a newer run may already be registered.
+                _runs.TryRemove(new KeyValuePair<Guid, DownloadRun>(task.Id, run));
             }
-            task.BytesDownloaded = total;
-            await Task.Delay(100, cancellationToken);
-            
-            if (task.Segments.All(s => s.Status == DownloadStatus.Completed))
-            {
-                break;
-            }
+            run.Cts.Dispose();
         }
     }
 
-    public Task CancelDownloadAsync(Guid downloadId)
+    private async Task DownloadSegmentsAsync(DownloadTask task, CancellationToken token)
     {
-        if (_downloads.TryGetValue(downloadId, out var task))
+        if (task.Segments.Count == 0)
         {
-            task.Status = DownloadStatus.Cancelled;
-            foreach (var segment in task.Segments)
+            task.Segments = CreateSegments(task.TotalBytes, task.SupportsRanges ? _options.SegmentCount : 1);
+        }
+
+        if (!task.SupportsRanges)
+        {
+            // Without ranges a single stream must start from byte 0 every time.
+            task.Segments[0].BytesDownloaded = 0;
+        }
+
+        // A permanent failure in one segment stops all the others.
+        using var failure = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var segmentTasks = task.Segments
+            .Where(s => s.Status != DownloadStatus.Completed)
+            .Select(s => DownloadSegmentWithRetryAsync(task, s, failure))
+            .ToList();
+
+        await Task.WhenAll(segmentTasks);
+    }
+
+    private async Task DownloadSegmentWithRetryAsync(DownloadTask task, DownloadSegment segment, CancellationTokenSource failure)
+    {
+        var token = failure.Token;
+        var downloader = new SegmentDownloader(_networkClient, _fileStorage, _options.FlushThreshold);
+
+        for (var attempt = 0; ; attempt++)
+        {
+            try
             {
-                if (segment.Status == DownloadStatus.Downloading || 
-                    segment.Status == DownloadStatus.Queued || 
-                    segment.Status == DownloadStatus.Paused)
-                {
-                    segment.Status = DownloadStatus.Cancelled;
-                }
+                if (!task.SupportsRanges) segment.BytesDownloaded = 0;
+                await downloader.DownloadSegmentAsync(task.Url, task.TempFilePath, segment, token, task.SupportsRanges);
+                return;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (RangeNotSupportedException)
+            {
+                failure.Cancel();
+                throw;
+            }
+            catch (Exception) when (attempt < _options.MaxRetries)
+            {
+                segment.Status = DownloadStatus.Queued;
+                await Task.Delay(_options.RetryDelay * (attempt + 1), token);
+            }
+            catch
+            {
+                failure.Cancel();
+                throw;
             }
         }
-        return Task.CompletedTask;
     }
 
-    public IEnumerable<DownloadTask> GetAllDownloads()
+    private IReadOnlyList<DownloadSegment> CreateSegments(long totalBytes, int maxSegments)
     {
-        return _downloads.Values;
-    }
+        var bySize = Math.Max(1, totalBytes / Math.Max(1, _options.MinSegmentSize));
+        var count = (int)Math.Clamp(bySize, 1, Math.Max(1, maxSegments));
+        var segmentSize = totalBytes / count;
 
-    public DownloadTask? GetDownload(Guid downloadId)
-    {
-        _downloads.TryGetValue(downloadId, out var task);
-        return task;
+        var segments = new DownloadSegment[count];
+        for (var i = 0; i < count; i++)
+        {
+            var start = i * segmentSize;
+            var end = i == count - 1 ? totalBytes - 1 : start + segmentSize - 1;
+            segments[i] = new DownloadSegment { Index = i, StartOffset = start, EndOffset = end };
+        }
+        return segments;
     }
 }

@@ -1,10 +1,12 @@
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
+using DotNetDownloadManager.Core.Models;
 
 namespace DotNetDownloadManager.Core.Interfaces;
 
 public interface INetworkClient
 {
-    Task<long> GetFileSizeAsync(string url);
-    Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null);
+    Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default);
+    Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken cancellationToken = default);
 }

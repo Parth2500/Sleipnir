@@ -1,97 +1,115 @@
-using System;
-using System.IO;
-using System.Threading.Tasks;
 using DotNetDownloadManager.Core.Interfaces;
 using DotNetDownloadManager.Core.Models;
 
 namespace DotNetDownloadManager.Services;
 
+/// <summary>
+/// Downloads one <see cref="DownloadSegment"/> into its slot of the pre-allocated temp file.
+/// </summary>
 public class SegmentDownloader
 {
+    private const int ReadChunkSize = 81920;
+
     private readonly INetworkClient _networkClient;
     private readonly IFileStorage _fileStorage;
-    private const int BufferSize = 8192;
+    private readonly int _flushThreshold;
 
-    public SegmentDownloader(INetworkClient networkClient, IFileStorage fileStorage)
+    public SegmentDownloader(INetworkClient networkClient, IFileStorage fileStorage, int flushThreshold = 512 * 1024)
     {
         _networkClient = networkClient;
         _fileStorage = fileStorage;
+        _flushThreshold = flushThreshold;
     }
 
-    public async Task DownloadSegmentAsync(string url, string destinationPath, DownloadSegment segment, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Downloads the rest of <paramref name="segment"/>, resuming from <see cref="DownloadSegment.BytesDownloaded"/>.
+    /// </summary>
+    /// <param name="useRange">
+    /// False for servers without Range support: the whole body is requested, so the segment must start at 0
+    /// and be the only one.
+    /// </param>
+    /// <remarks>
+    /// Invariant: whenever this method exits (success, pause/cancel, or error), <see cref="DownloadSegment.BytesDownloaded"/>
+    /// equals the number of bytes actually written to disk, so a later resume never skips data.
+    /// </remarks>
+    /// <exception cref="OperationCanceledException">The token was cancelled (pause/cancel). Received bytes are kept.</exception>
+    /// <exception cref="IOException">The server closed the connection before the segment was complete.</exception>
+    public async Task DownloadSegmentAsync(
+        string url,
+        string destinationPath,
+        DownloadSegment segment,
+        CancellationToken cancellationToken = default,
+        bool useRange = true)
     {
+        if (segment.BytesDownloaded >= segment.TotalBytes)
+        {
+            segment.Status = DownloadStatus.Completed;
+            return;
+        }
+
+        segment.Status = DownloadStatus.Downloading;
+        var persisted = segment.BytesDownloaded;
+        using var pending = new MemoryStream();
+
+        async Task FlushAsync()
+        {
+            if (pending.Length == 0) return;
+            pending.Position = 0;
+            // Never cancel a flush half-way: these bytes are already counted as received.
+            await _fileStorage.WriteAsync(destinationPath, segment.StartOffset + persisted, pending, CancellationToken.None);
+            persisted += pending.Length;
+            pending.SetLength(0);
+        }
+
+        async Task SalvageAsync()
+        {
+            try { await FlushAsync(); }
+            catch { /* disk write failed: those bytes will be re-downloaded */ }
+            segment.BytesDownloaded = persisted;
+        }
+
         try
         {
-            segment.Status = DownloadStatus.Downloading;
-            
-            // Calculate where to start downloading from
-            var currentStart = segment.StartOffset + segment.BytesDownloaded;
-            
-            if (currentStart > segment.EndOffset)
+            long? from = useRange ? segment.StartOffset + persisted : null;
+            long? to = useRange ? segment.EndOffset : null;
+            await using var stream = await _networkClient.GetStreamAsync(url, from, to, cancellationToken);
+
+            var chunk = new byte[ReadChunkSize];
+            while (persisted + pending.Length < segment.TotalBytes)
             {
-                segment.Status = DownloadStatus.Completed;
-                return;
-            }
+                var wanted = (int)Math.Min(chunk.Length, segment.TotalBytes - persisted - pending.Length);
+                var read = await stream.ReadAsync(chunk.AsMemory(0, wanted), cancellationToken);
+                if (read == 0) break;
 
-            using var stream = await _networkClient.GetStreamAsync(url, currentStart, segment.EndOffset);
-            
-            // Read buffer
-            var buffer = new byte[BufferSize];
-            int bytesRead;
-            var memoryBuffer = new MemoryStream();
-            long totalBytesReadInThisSession = 0; // Track bytes read in THIS download session only
-            long remainingBytes = segment.TotalBytes - segment.BytesDownloaded; // How many bytes left to download
+                pending.Write(chunk, 0, read);
+                segment.BytesDownloaded = persisted + pending.Length; // live progress for the UI
 
-            while (remainingBytes > 0 && (bytesRead = await stream.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, remainingBytes), cancellationToken)) > 0)
-            {
-                // Check cancellation first
-                if (cancellationToken.IsCancellationRequested)
+                if (pending.Length >= _flushThreshold)
                 {
-                    break;
-                }
-                
-                if (segment.Status == DownloadStatus.Paused || segment.Status == DownloadStatus.Cancelled)
-                {
-                    break;
-                }
-
-                await memoryBuffer.WriteAsync(buffer, 0, bytesRead, cancellationToken);
-                totalBytesReadInThisSession += bytesRead;
-                
-                // Update the segment's total downloaded bytes
-                segment.BytesDownloaded = (currentStart - segment.StartOffset) + totalBytesReadInThisSession;
-                
-                // Update remaining bytes
-                remainingBytes = segment.TotalBytes - segment.BytesDownloaded;
-
-                // Flush logic (similar to previous single threaded, but now per segment)
-                if (memoryBuffer.Length >= 512 * 1024) // 512KB flush
-                {
-                    memoryBuffer.Position = 0;
-                    await _fileStorage.WriteAsync(destinationPath, currentStart + totalBytesReadInThisSession - memoryBuffer.Length, memoryBuffer);
-                    memoryBuffer.SetLength(0); 
+                    await FlushAsync();
                 }
             }
 
-            // Final flush
-            if (memoryBuffer.Length > 0 && !cancellationToken.IsCancellationRequested)
+            await FlushAsync();
+            segment.BytesDownloaded = persisted;
+
+            if (persisted < segment.TotalBytes)
             {
-                memoryBuffer.Position = 0;
-                await _fileStorage.WriteAsync(destinationPath, currentStart + totalBytesReadInThisSession - memoryBuffer.Length, memoryBuffer);
+                throw new IOException(
+                    $"Connection closed early: segment {segment.Index + 1} received {persisted} of {segment.TotalBytes} bytes.");
             }
 
-            if (segment.Status != DownloadStatus.Cancelled && segment.BytesDownloaded >= segment.TotalBytes)
-            {
-                segment.Status = DownloadStatus.Completed;
-            }
+            segment.Status = DownloadStatus.Completed;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Expected when download is paused/cancelled
-            segment.Status = segment.Status == DownloadStatus.Cancelled ? DownloadStatus.Cancelled : DownloadStatus.Paused;
+            await SalvageAsync();
+            segment.Status = DownloadStatus.Paused;
+            throw;
         }
-        catch (Exception)
+        catch
         {
+            await SalvageAsync();
             segment.Status = DownloadStatus.Failed;
             throw;
         }

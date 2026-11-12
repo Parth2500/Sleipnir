@@ -1,166 +1,88 @@
 # DotNet Download Manager (DNM)
 
-A high-performance, multi-threaded **download manager for .NET**, inspired by the functionality of Internet Download Manager (IDM), built as a **console-first application** with a modern **Text User Interface (TUI)** using **Spectre.Console**.
+A multi-threaded **download manager for the terminal**, written in C# / .NET 10 with a live
+dashboard built on [Spectre.Console](https://spectreconsole.net/).
 
-The goal of this project is not just speed, but **reliability, control, and clean architecture**.
+DNM splits a file into byte ranges, downloads them in parallel over HTTP, and stitches them into
+one file. It can pause, resume, cancel, and retry segments that fail.
 
----
+```
+╭─Current Download──────────────────────╮ ╭─Download History─────────────────────╮
+│ File: ubuntu-24.04.iso                │ │ Filename         │ Status   │ Size   │
+│ Status: ⬇ Downloading...              │ │ ubuntu-24.04.iso │ ⬇ 42%    │ 5.7 GB │
+│ Progress: 42.10% (2.4 GB / 5.7 GB)    │ │ sdk.zip          │ ✓ Done   │ 210 MB │
+│ Segments:                             │ │ tools.exe        │ ⏸ Paused │ 12 MB  │
+│ ⬇ Seg 1: 44%   ⬇ Seg 2: 41%           │ ╰──────────────────────────────────────╯
+╰───────────────────────────────────────╯
+ N=New  P=Pause  R=Resume  C=Cancel  ↑/↓=Select  Q=Quit
+```
 
-## 🚀 Features (Planned & In Progress)
+## Quick start
 
-### Core Download Features
-- Multi-threaded (segmented) downloads using HTTP Range requests
-- Automatic fallback to single-threaded downloads if server does not support ranges
-- Pause / Resume downloads
-- Resume after application restart
-- Robust retry & error recovery per segment
-- Download queue management
-- Per-download progress tracking
-- Speed calculation (per segment & total)
-- File integrity verification (optional)
+```bash
+# Requires the .NET 10 SDK (Fedora: sudo dnf install dotnet-sdk-10.0)
+dotnet run --project "DotNet Download Manager.csproj"
+```
 
-### Terminal UI (TUI)
-- Interactive console UI using Spectre.Console
-- Live progress bars
-- Download list with status:
-  - Queued
-  - Downloading
-  - Paused
-  - Completed
-  - Failed
-- Keyboard-driven navigation
-- ASCII-safe rendering (works in all consoles)
+Press **N**, paste a URL, and press Enter. Files are saved to `~/Downloads`.
 
-### Browser Integration (Future)
-- Browser extension (Chrome / Edge / Firefox)
-- Intercept download links
-- Send download tasks to the running download manager via local API / IPC
+| Key   | Action                                                   |
+|-------|----------------------------------------------------------|
+| `N`   | New download                                             |
+| `P`   | Pause the selected download                              |
+| `R`   | Resume the selected download (also retries failed ones)  |
+| `C`   | Cancel the selected download and delete its partial file |
+| `↑/↓` | Select another download from the history                 |
+| `Q`   | Quit                                                     |
 
----
+Running in a container (Podman shown; Docker instructions are in the [User Guide](docs/USER_GUIDE.md#podman--docker)):
 
-## 🧠 Why another download manager?
+```bash
+podman build -t dnm .
+podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
+  -v ~/Downloads:/root/Downloads dnm
+```
 
-Browsers prioritize:
-- Safety
-- Simplicity
-- Fair server usage
+## Features
 
-They intentionally limit aggressive parallelism.
+**Working today**
 
-This project focuses on:
-- Maximum bandwidth utilization
-- Stability on unreliable networks
-- Full user control
-- Learning & experimenting with real-world systems concepts
+- Segmented parallel downloads using HTTP Range requests (up to 8 segments, ≥ 1 MB each)
+- Automatic fallback to a single stream when the server does not support ranges — including servers
+  that advertise ranges but ignore them
+- Pause / resume within a session, without losing or corrupting data
+- Cancel, which stops the transfers immediately and removes the partial `.dnm` file
+- Per-segment retry with backoff (3 retries); a permanent failure stops the other segments
+- Safe file naming: names from the URL are sanitized (no path traversal) and existing files are
+  never overwritten (`file (1).zip`, `file (2).zip`, …)
+- Live dashboard with per-segment progress and a history of the last 10 downloads
 
----
+**Planned** (not implemented yet)
 
-## 🏗 Architecture Overview
+- Resume after the application restarts (download state is only kept in memory)
+- Download queue with a concurrency limit, speed display, and speed limits
+- Checksum verification
+- Browser extension / local API for sending links to DNM
 
-The application follows **SOLID principles** and a layered architecture.
+## Documentation
 
-DotNetDownloadManager
-│
-├── Core
-│ ├── Models // DownloadTask, DownloadSegment, DownloadState
-│ ├── Interfaces // Abstractions for FS, Network, Scheduler
-│ └── Contracts // DTOs & shared contracts
-│
-├── Services
-│ ├── DownloadService // Orchestrates downloads
-│ ├── SegmentDownloader // Handles individual segments
-│ ├── SchedulerService // Queue & concurrency control
-│ ├── ResumeService // Persistence & resume logic
-│
-├── Infrastructure
-│ ├── Http // HttpClient, range handling
-│ ├── Persistence // Metadata storage (JSON / DB)
-│ └── System // OS integration
-│
-├── UI
-│ ├── TUI // Spectre.Console rendering
-│ └── Input // Keyboard commands
-│
-└── Program.cs
+| Document | For |
+|----------|-----|
+| [User Guide](docs/USER_GUIDE.md) | Installing, running, using the TUI, troubleshooting |
+| [Architecture](docs/ARCHITECTURE.md) | How downloads work internally, design decisions, limitations |
+| [Development Guide](docs/DEVELOPMENT.md) | Building, testing, project layout, contributing |
+| [Changelog](CHANGELOG.md) | What changed and which bugs were fixed |
 
+## Project status
 
-### Design Principles
-- **Single Responsibility**: Each service does one thing
-- **Open / Closed**: New protocols or UIs can be added without modifying core logic
-- **Dependency Inversion**: Core depends on interfaces, not implementations
-- **Testability**: Download logic is decoupled from UI
+Early development. The core download engine is functional and covered by tests
+(`tests/DotNetDownloadManager.Tests`); the features listed under *Planned* are not.
 
----
+## License
 
-## 📦 Technology Stack
+[MIT](LICENSE) © 2026 Parth Makwana
 
-- .NET 8 / .NET 9 (Console Application)
-- C#
-- Spectre.Console – Terminal UI
-- HttpClient – Network layer
-- Task / async-await – Concurrency
-- JSON persistence (initially)
+## Disclaimer
 
----
-
-## 🔄 How Multi-Threaded Downloading Works
-
-1. Perform a HEAD request to detect:
-   - File size
-   - Range request support
-2. Split file into segments
-3. Download segments in parallel
-4. Persist progress per segment
-5. Merge segments into final file
-6. Resume from last known state if interrupted
-
----
-
-## 🖥 Example TUI (Concept)
-
-┌──────────────────────────────────────────────┐
-│ DotNet Download Manager │
-├──────────────────────────────────────────────┤
-│ ubuntu.iso [███████░░░░░░] 42% 2.3MB/s│
-│ movie.mkv [████████████░] 95% 5.1MB/s│
-│ sdk.zip Queued │
-│ tools.exe Paused │
-└──────────────────────────────────────────────┘
-[ A ] Add [ P ] Pause [ R ] Resume [ Q ] Quit
-
-
----
-
-## 🧩 Planned Extensions
-
-- Browser extension integration
-- REST / IPC API for external control
-- Plugin system (post-processing, checksum, extraction)
-- Scheduler rules (time-based, speed limits)
-- Proxy / VPN-aware downloads
-- HTTP/2 and HTTP/3 optimization experiments
-
----
-
-## 🎯 Project Goals
-
-- Build a **real-world systems application**
-- Learn advanced networking and concurrency
-- Maintain clean, maintainable architecture
-- Avoid demo-only code
-- Stay console-first (GUI optional later)
-
----
-
-## ⚠ Disclaimer
-
-This project is for **educational and personal use**.  
-Always respect server policies, rate limits, and legal constraints when downloading content.
-
----
-
-## 📌 Status
-
-🚧 **Early Development / Design Phase**
-
-Core architecture and foundational components are being actively designed and implemented.
+For educational and personal use. Respect server policies, rate limits, and the law when
+downloading content.

@@ -1,24 +1,28 @@
-using System.IO;
-using System.Threading.Tasks;
 using DotNetDownloadManager.Core.Interfaces;
 
 namespace DotNetDownloadManager.Infrastructure.Storage;
 
 public class LocalFileStorage : IFileStorage
 {
-    public async Task CreateFileAsync(string path, long size)
+    public Task CreateFileAsync(string path, long size)
     {
-        // Pre-allocate file size
+        var directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        // Pre-allocate so every segment can write at its own offset.
         using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
         fs.SetLength(size);
-        await Task.CompletedTask; // FileStream constructors are sync, but keeping interface async for future flexibility
+        return Task.CompletedTask;
     }
 
-    public async Task WriteAsync(string path, long offset, Stream stream)
+    public async Task WriteAsync(string path, long offset, Stream stream, CancellationToken cancellationToken = default)
     {
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+        await using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite, 4096, FileOptions.Asynchronous);
         fs.Seek(offset, SeekOrigin.Begin);
-        await stream.CopyToAsync(fs);
+        await stream.CopyToAsync(fs, cancellationToken);
     }
 
     public Task DeleteAsync(string path)
@@ -30,13 +34,9 @@ public class LocalFileStorage : IFileStorage
         return Task.CompletedTask;
     }
 
-    public bool Exists(string path)
-    {
-        return File.Exists(path);
-    }
-    
-    public Stream OpenRead(string path)
-    {
-        return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-    }
+    public bool Exists(string path) => File.Exists(path);
+
+    public Stream OpenRead(string path) => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+    public void Move(string sourcePath, string destinationPath) => File.Move(sourcePath, destinationPath, overwrite: false);
 }
