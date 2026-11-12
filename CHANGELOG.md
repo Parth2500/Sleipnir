@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed: new name
+
+- **Renamed to Sleipnir**, Odin's eight-legged horse: eight legs, eight connections. The GitHub
+  repository is now `Parth2500/Sleipnir`; old links redirect. The UI and docs use the new name. The
+  `dnm` command, the `.dnm` temp files and the data folders keep their names for now, and code
+  namespaces move to `Sleipnir.*` during the Phase 2 restructure.
+
 ### Added: new interface
 
 - **Full-screen, keyboard-first TUI** in the style of chat-like terminal apps. A list of downloads

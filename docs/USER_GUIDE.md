@@ -20,7 +20,7 @@ dotnet run --project "DotNet Download Manager.csproj"
 
 ```bash
 dotnet publish "DotNet Download Manager.csproj" -c Release -o out
-dotnet "out/DotNet Download Manager.dll"
+dotnet "out/Sleipnir.dll"
 ```
 
 ### Podman / Docker
@@ -37,20 +37,20 @@ docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/dnm \
   -v ~/Downloads:/home/dnm/Downloads -v dnm-state:/home/dnm/.local/share/dnm dnm
 ```
 
-- `-it` is required: DNM reads keys directly from the terminal.
-- The volume mount makes downloads land on your machine instead of inside the container. DNM saves to
+- `-it` is required: Sleipnir reads keys directly from the terminal.
+- The volume mount makes downloads land on your machine instead of inside the container. Sleipnir saves to
   `$HOME/Downloads`, so the mount target must match the `HOME` you set.
 - The `--user` override is needed because the image's default `app` user (UID 1654) has no
   permission to write to your `~/Downloads`.
 - `--security-opt label=disable` (SELinux systems such as Fedora) lets the container use the mount
   without relabelling your real Downloads folder, which `:Z` would do.
-- `-v dnm-state:…` keeps DNM's saved download list in a named volume, so downloads resume and
+- `-v dnm-state:…` keeps Sleipnir's saved download list in a named volume, so downloads resume and
   history survives between container runs. Without it, every run starts empty.
-- `podman stop` / `docker stop` shut DNM down gracefully and save progress, just like quitting.
+- `podman stop` / `docker stop` shut Sleipnir down gracefully and save progress, just like quitting.
 
 ## The screen
 
-DNM takes over the terminal (like `htop` or `less`) and gives it back when you quit.
+Sleipnir takes over the terminal (like `htop` or `less`) and gives it back when you quit.
 
 | Area | Shows |
 |------|-------|
@@ -64,7 +64,7 @@ DNM takes over the terminal (like `htop` or `less`) and gives it back when you q
 ### Adding downloads
 
 Paste a URL into the input box and press `Enter`. Paste several URLs at once (separated by
-spaces or new lines) and DNM adds them all. `/add <url>` does the same.
+spaces or new lines) and Sleipnir adds them all. `/add <url>` does the same.
 
 ### Keys
 
@@ -110,11 +110,11 @@ Type `/` and a menu appears. Keep typing to filter it, `↑` `↓` to choose, `T
 | ✗ cancelled | Stopped by you; the partial file has been removed |
 
 In the details, a segment marked **waiting** is pausing between retries, for example because the
-server asked DNM to slow down.
+server asked Sleipnir to slow down.
 
 ## Quitting and coming back later
 
-DNM remembers your downloads. When you quit (`Ctrl+C` twice, `/quit`, closing the terminal, or `kill`):
+Sleipnir remembers your downloads. When you quit (`Ctrl+C` twice, `/quit`, closing the terminal, or `kill`):
 
 - **Running** downloads are stopped cleanly: data already received is written to disk, then they are
   marked to **resume automatically** on the next start.
@@ -122,11 +122,11 @@ DNM remembers your downloads. When you quit (`Ctrl+C` twice, `/quit`, closing th
 - **Failed** downloads stay failed; press `Space` to retry.
 - **Finished** downloads stay in the history (the 200 most recent are kept).
 
-Even after a crash or power cut, progress is safe: DNM only records bytes that have actually been
+Even after a crash or power cut, progress is safe: Sleipnir only records bytes that have actually been
 written to disk, so a resume can never skip data. You may lose up to a few seconds of progress.
 
 The saved state lives in `~/.local/share/dnm/downloads/` (one small JSON file per download; it
-follows `$XDG_DATA_HOME` if set). Deleting that folder makes DNM forget all downloads; the files in
+follows `$XDG_DATA_HOME` if set). Deleting that folder makes Sleipnir forget all downloads; the files in
 `~/Downloads` are not touched.
 
 ## Where files go
@@ -144,20 +144,20 @@ Downloads are saved to `~/Downloads` (created if missing).
 
 ## How fast is it?
 
-When the server supports HTTP Range requests (most file hosts and CDNs do), DNM opens up to
+When the server supports HTTP Range requests (most file hosts and CDNs do), Sleipnir opens up to
 8 parallel connections, one per segment of at least 1 MB. Small files use fewer segments.
 
-If the server does not support ranges, DNM downloads over a single connection. In that case a
+If the server does not support ranges, Sleipnir downloads over a single connection. In that case a
 pause/resume or retry has to restart the file from the beginning, because the server cannot send
-"the rest" of it. The same applies when the server doesn't report the file size at all: DNM then
+"the rest" of it. The same applies when the server doesn't report the file size at all: Sleipnir then
 downloads until the server ends the transfer, and shows bytes received instead of a percentage.
 
 At most **3 downloads** transfer at the same time; others wait as *Queued* and start automatically
 when a slot frees up.
 
-### When things go wrong, DNM retries for you
+### When things go wrong, Sleipnir retries for you
 
-| Situation | What DNM does |
+| Situation | What Sleipnir does |
 |-----------|---------------|
 | Connection dropped / network error | Retries the segment up to 3 times (after 1 s, 2 s, 3 s), continuing from the bytes it already has |
 | Connection open but no data for 30 s | Treats it as dropped and retries |
@@ -173,7 +173,7 @@ when a slot frees up.
 | `Failed: Server is busy (HTTP 429)…` | The server kept rate-limiting after 10 polite retries. Wait a while and press `Space`. |
 | `Failed: No data received for 30 s…` / `Timed out connecting…` | The server or network stopped responding, and retries didn't help. Check your connection and press `Space`. |
 | Download restarts from 0% after resuming | The server does not support ranges (see above). |
-| Leftover `*.dnm` files in `~/Downloads` | Normally these belong to paused/queued downloads and are resumed. If DNM's saved state was deleted, they are orphans and safe to delete. |
+| Leftover `*.dnm` files in `~/Downloads` | Normally these belong to paused/queued downloads and are resumed. If Sleipnir's saved state was deleted, they are orphans and safe to delete. |
 | Downloads don't come back after restarting the container | Add the `-v dnm-state:…` volume (see [Podman / Docker](#podman--docker)). |
 | `Invalid operation … console input` / crash on start in Docker | Run the container with `-it`. |
 | Garbled boxes or icons | Use a Unicode-capable terminal font, or widen the window. |

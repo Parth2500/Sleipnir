@@ -8,7 +8,7 @@ namespace DotNetDownloadManager.Infrastructure.Network;
 
 public class HttpNetworkClient : INetworkClient
 {
-    private static readonly ProductInfoHeaderValue UserAgent = new("DotNetDownloadManager", "1.0");
+    private static readonly ProductInfoHeaderValue UserAgent = new("Sleipnir", "1.0");
 
     private readonly HttpClient _httpClient;
 

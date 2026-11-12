@@ -60,7 +60,7 @@ public static class TuiRenderer
 
         return new List<IRenderable>
         {
-            new Markup($"[{Accent}]⬇[/] [bold]DotNet Download Manager[/]  [{Dim}]{summary}[/]"),
+            new Markup($"[{Accent}]⬇[/] [bold]Sleipnir[/]  [{Dim}]{summary}[/]"),
             Text.Empty,
         };
     }
@@ -68,7 +68,7 @@ public static class TuiRenderer
     private static List<IRenderable> BuildEmptyState() => new()
     {
         new Markup($"  [bold]No downloads yet.[/]"),
-        new Markup($"  [{Dim}]Paste a URL below to start one. DNM splits it into parallel connections and[/]"),
+        new Markup($"  [{Dim}]Paste a URL below to start one. Sleipnir splits it into parallel connections and[/]"),
         new Markup($"  [{Dim}]picks up where it left off if it is interrupted, even after you quit.[/]"),
     };
 

@@ -1,13 +1,16 @@
-# DotNet Download Manager (DNM)
+# Sleipnir
+
+> Named after Odin's eight-legged horse, the fastest steed, which carries riders between the worlds.
+> Sleipnir downloads over eight connections at once. *(Formerly "DotNet Download Manager".)*
 
 A multi-threaded **download manager for the terminal**, written in C# / .NET 10 with a
 full-screen, keyboard-first interface built on [Spectre.Console](https://spectreconsole.net/).
 
-DNM splits a file into byte ranges, downloads them in parallel over HTTP, and stitches them into
+Sleipnir splits a file into byte ranges, downloads them in parallel over HTTP, and stitches them into
 one file. It can pause, resume (even after a restart), cancel, queue, and retry segments that fail.
 
 ```
-⬇ DotNet Download Manager  1 active · 10.6 MB/s
+⬇ Sleipnir  1 active · 10.6 MB/s
 
    ✓ 1Mb.dat                           done · 1 MB
  › ↓ 100Mb.dat                         ██████████████████████░░░░░░░░░░░░░░░  59%  10.6 MB/s · 0:03
@@ -71,7 +74,7 @@ podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
 - Segmented parallel downloads using HTTP Range requests (up to 8 segments, ≥ 1 MB each)
 - Automatic fallback to a single stream when the server does not support ranges — including servers
   that advertise ranges but ignore them
-- **Resume after restart**: quit or crash mid-download and DNM picks up where it left off next time
+- **Resume after restart**: quit or crash mid-download and Sleipnir picks up where it left off next time
   (progress is crash-safe: only bytes already on disk are recorded)
 - Pause / resume / cancel without losing or corrupting data
 - Download queue: at most 3 downloads run at once, the rest wait their turn
@@ -86,7 +89,7 @@ podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
   autocomplete, expandable details, help screen, and short confirmations
 - Persistent history; `/clear` tidies finished downloads away (files are kept)
 
-**Planned** — see the [roadmap](https://github.com/Parth2500/DotNet-Download-Manager/issues/1)
+**Planned** — see the [roadmap](https://github.com/Parth2500/Sleipnir/issues/1)
 
 - Settings file, speed limits, checksum verification, batch input, authentication, proxies
 - Non-interactive CLI mode, local API, browser extension
@@ -98,7 +101,7 @@ podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
 | [User Guide](docs/USER_GUIDE.md) | Installing, running, using the TUI, troubleshooting |
 | [Architecture](docs/ARCHITECTURE.md) | How downloads work internally, design decisions, limitations |
 | [Development Guide](docs/DEVELOPMENT.md) | Building, testing, project layout, contributing |
-| [Feature Comparison](docs/FEATURE_COMPARISON.md) | DNM vs aria2: what we have, what's planned, candidates to revisit |
+| [Feature Comparison](docs/FEATURE_COMPARISON.md) | Sleipnir vs aria2: what we have, what's planned, candidates to revisit |
 | [Changelog](CHANGELOG.md) | What changed and which bugs were fixed |
 
 ## Project status

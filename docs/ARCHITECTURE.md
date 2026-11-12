@@ -214,7 +214,7 @@ because download threads write them and the UI thread reads them.
 **Crash safety:** because only `PersistedBytes` is saved, the state on disk never runs ahead of the
 data in the `.dnm` file. After a hard crash you lose at most the last couple of seconds of progress,
 never correctness. (One caveat: after an OS crash or power loss, data the OS hadn't yet flushed from
-its page cache may be missing. DNM doesn't `fsync` on every write.)
+its page cache may be missing. Sleipnir doesn't `fsync` on every write.)
 
 ## Status state machine
 
@@ -289,7 +289,7 @@ window is reset.
 
 ## Known limitations and next steps
 
-See the [roadmap](https://github.com/Parth2500/DotNet-Download-Manager/issues/1) and
+See the [roadmap](https://github.com/Parth2500/Sleipnir/issues/1) and
 [FEATURE_COMPARISON.md](FEATURE_COMPARISON.md).
 
 | Limitation | Direction |

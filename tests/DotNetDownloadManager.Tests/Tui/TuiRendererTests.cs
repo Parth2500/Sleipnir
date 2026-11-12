@@ -34,7 +34,7 @@ public class TuiRendererTests
     {
         var output = Screen(Ui());
 
-        Assert.Contains("DotNet Download Manager", output);
+        Assert.Contains("Sleipnir", output);
         Assert.Contains("No downloads yet", output);
         Assert.Contains("Paste a URL", output);
         Assert.Contains("? for help", output);
@@ -78,7 +78,7 @@ public class TuiRendererTests
         _service.Seed("b", DownloadStatus.Queued);
         _service.Seed("c", DownloadStatus.Completed);
 
-        var header = Screen(Ui()).Split('\n').First(l => l.Contains("DotNet Download Manager"));
+        var header = Screen(Ui()).Split('\n').First(l => l.Contains("Sleipnir"));
 
         Assert.Contains("2 active", header);
     }

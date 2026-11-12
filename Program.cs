@@ -79,5 +79,5 @@ AnsiConsole.MarkupLine("[grey62]Saving progress…[/]");
 await downloadService.ShutdownAsync();
 var unfinished = downloadService.GetAllDownloads().Count(d => d.Status == DownloadStatus.Queued);
 AnsiConsole.MarkupLine(unfinished > 0
-    ? $"[grey62]{unfinished} download{(unfinished == 1 ? "" : "s")} will resume next time you start DNM.[/]"
+    ? $"[grey62]{unfinished} download{(unfinished == 1 ? "" : "s")} will resume next time you start Sleipnir.[/]"
     : "[grey62]Bye.[/]");
