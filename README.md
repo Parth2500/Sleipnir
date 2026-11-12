@@ -4,7 +4,7 @@ A multi-threaded **download manager for the terminal**, written in C# / .NET 10 
 dashboard built on [Spectre.Console](https://spectreconsole.net/).
 
 DNM splits a file into byte ranges, downloads them in parallel over HTTP, and stitches them into
-one file. It can pause, resume, cancel, and retry segments that fail.
+one file. It can pause, resume (even after a restart), cancel, queue, and retry segments that fail.
 
 ```
 ╭─Current Download──────────────────────╮ ╭─Download History─────────────────────╮
@@ -33,14 +33,14 @@ Press **N**, paste a URL, and press Enter. Files are saved to `~/Downloads`.
 | `R`   | Resume the selected download (also retries failed ones)  |
 | `C`   | Cancel the selected download and delete its partial file |
 | `↑/↓` | Select another download from the history                 |
-| `Q`   | Quit                                                     |
+| `Q`   | Quit (running downloads resume on next start)            |
 
 Running in a container (Podman shown; Docker instructions are in the [User Guide](docs/USER_GUIDE.md#podman--docker)):
 
 ```bash
 podman build -t dnm .
 podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
-  -v ~/Downloads:/root/Downloads dnm
+  -v ~/Downloads:/root/Downloads -v dnm-state:/root/.local/share/dnm dnm
 ```
 
 ## Features
@@ -50,19 +50,23 @@ podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
 - Segmented parallel downloads using HTTP Range requests (up to 8 segments, ≥ 1 MB each)
 - Automatic fallback to a single stream when the server does not support ranges — including servers
   that advertise ranges but ignore them
-- Pause / resume within a session, without losing or corrupting data
-- Cancel, which stops the transfers immediately and removes the partial `.dnm` file
-- Per-segment retry with backoff (3 retries); a permanent failure stops the other segments
+- **Resume after restart**: quit or crash mid-download and DNM picks up where it left off next time
+  (progress is crash-safe: only bytes already on disk are recorded)
+- Pause / resume / cancel without losing or corrupting data
+- Download queue: at most 3 downloads run at once, the rest wait their turn
+- Live speed and time remaining (ETA), per download and in total
+- Robust retries: dropped connections, stalled connections (no data for 30 s), and rate limiting
+  (HTTP 429/503, honouring `Retry-After`); permanent errors such as 404 fail immediately
+- Works on networks with broken IPv6 (Happy Eyeballs: IPv6 and IPv4 are raced)
+- Downloads of unknown size (servers that don't send `Content-Length`)
 - Safe file naming: names from the URL are sanitized (no path traversal) and existing files are
   never overwritten (`file (1).zip`, `file (2).zip`, …)
-- Live dashboard with per-segment progress and a history of the last 10 downloads
+- Live dashboard with per-segment progress and a persistent history
 
-**Planned** (not implemented yet)
+**Planned** — see the [roadmap](https://github.com/Parth2500/DotNet-Download-Manager/issues/1)
 
-- Resume after the application restarts (download state is only kept in memory)
-- Download queue with a concurrency limit, speed display, and speed limits
-- Checksum verification
-- Browser extension / local API for sending links to DNM
+- Settings file, speed limits, checksum verification, batch input, authentication, proxies
+- Non-interactive CLI mode, local API, browser extension
 
 ## Documentation
 

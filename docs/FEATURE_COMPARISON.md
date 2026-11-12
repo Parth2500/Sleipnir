@@ -7,7 +7,7 @@ is the most complete open-source command-line downloader, so it serves as the be
 > integration, not a full aria2 replacement. Use this file to decide case by case whether an
 > aria2 feature is worth adding.
 
-*Last reviewed: 2026-11-12. Roadmap: [issue #1](https://github.com/Parth2500/DotNet-Download-Manager/issues/1).*
+*Last reviewed: 2026-11-12 (updated after Phase 1). Roadmap: [issue #1](https://github.com/Parth2500/DotNet-Download-Manager/issues/1).*
 
 **Legend:** ✅ have it · 🗺️ on the roadmap · 💡 candidate, not planned yet · ❌ out of scope for now
 
@@ -18,12 +18,13 @@ is the most complete open-source command-line downloader, so it serves as the be
 | Parallel segmented HTTP/HTTPS downloads | ✅ (up to 16) | ✅ (up to 8) | Segment count is set in `DownloadOptions` |
 | Single-stream fallback without Range support | ✅ | ✅ | Also handles servers that advertise ranges but ignore them |
 | Pause / resume in one session | ✅ | ✅ | |
-| Resume after restart | ✅ | 🗺️ Phase 1 | Persist task and segment state as JSON next to the `.dnm` file |
-| Per-segment retry with backoff | ✅ | ✅ | |
-| Stall / idle timeout | ✅ | 🗺️ Phase 1 | |
-| Unknown-size (chunked) downloads | ✅ | 🗺️ Phase 1 | |
-| Download queue / max concurrent | ✅ | 🗺️ Phase 1 | |
-| Speed and time remaining | ✅ | 🗺️ Phase 1 | |
+| Resume after restart | ✅ | ✅ | Crash-safe: only bytes confirmed on disk are recorded |
+| Per-segment retry with backoff | ✅ | ✅ | Separate budget for 429/503, honouring `Retry-After`; 4xx fail fast |
+| Stall / idle timeout | ✅ | ✅ | 30 s without data → retry |
+| Unknown-size (chunked) downloads | ✅ | ✅ | Single open-ended stream |
+| Download queue / max concurrent | ✅ | ✅ | Default 3 |
+| Speed and time remaining | ✅ | ✅ | 5 s sliding window |
+| Works when IPv6 is broken | ✅ (`--disable-ipv6`, manual) | ✅ automatic | Happy Eyeballs: IPv6 and IPv4 raced |
 | Speed limits (global and per download) | ✅ | 🗺️ Phase 2 | |
 | Checksum verification | ✅ | 🗺️ Phase 2 | |
 | Batch input (URL list file) | ✅ | 🗺️ Phase 2 | |
@@ -58,6 +59,8 @@ is the most complete open-source command-line downloader, so it serves as the be
 
 ## Summary
 
+- **Phase 1 is done**: resume after restart, queue, speed/ETA, stall detection and unknown-size
+  downloads now match aria2.
 - **After the roadmap**, DNM roughly matches aria2 for **single-server HTTP/HTTPS** downloading.
 - **The remaining gaps** are multi-source/Metalink, FTP/SFTP, BitTorrent, RPC compatibility,
   and a long tail of edge cases aria2 has accumulated over about 20 years.

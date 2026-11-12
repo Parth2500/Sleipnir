@@ -25,6 +25,18 @@ public class DownloadSegment
         set => Interlocked.Exchange(ref _bytesDownloaded, value);
     }
 
+    private long _persistedBytes;
+
+    /// <summary>Bytes of this segment confirmed written to disk. Only this value is saved for resume.</summary>
+    public long PersistedBytes
+    {
+        get => Interlocked.Read(ref _persistedBytes);
+        set => Interlocked.Exchange(ref _persistedBytes, value);
+    }
+
+    /// <summary>True when the file size is unknown: the segment runs until the server closes the stream.</summary>
+    public bool IsOpenEnded { get; set; }
+
     public DownloadStatus Status { get; set; } = DownloadStatus.Queued;
 
     public long TotalBytes => EndOffset - StartOffset + 1;

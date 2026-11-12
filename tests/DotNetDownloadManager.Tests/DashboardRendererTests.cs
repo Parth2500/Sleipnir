@@ -73,6 +73,48 @@ public class DashboardRendererTests
         Assert.Contains("a.iso", output);
     }
 
+    [Fact]
+    public void Running_download_shows_speed_and_eta()
+    {
+        var task = TaskNamed("big.iso");
+        task.TotalBytes = 10 * 1024 * 1024;
+        task.Segments = new[] { new DownloadSegment { StartOffset = 0, EndOffset = task.TotalBytes - 1 } };
+        var speeds = new SpeedTracker();
+        var t0 = DateTime.UtcNow;
+        speeds.Update(new[] { task }, t0);
+        task.Segments[0].BytesDownloaded = 2 * 1024 * 1024;
+        speeds.Update(new[] { task }, t0.AddSeconds(2)); // 1 MB/s, 8 MB left
+
+        var output = Render(DashboardRenderer.BuildCurrentDownloadPanel(new StubService(task), task.Id, speeds));
+
+        Assert.Contains("1 MB/s", output);
+        Assert.Contains("ETA 0:08", output);
+    }
+
+    [Fact]
+    public void Download_of_unknown_size_says_so_instead_of_showing_zero()
+    {
+        var task = TaskNamed("stream.bin");
+        task.TotalBytes = 0;
+        task.IsSizeKnown = false;
+        task.Segments = new[] { new DownloadSegment { StartOffset = 0, EndOffset = long.MaxValue - 1, IsOpenEnded = true, BytesDownloaded = 2048 } };
+
+        var panel = Render(DashboardRenderer.BuildCurrentDownloadPanel(new StubService(task), task.Id));
+        var history = Render(DashboardRenderer.BuildHistoryPanel(new StubService(task)));
+
+        Assert.Contains("2 KB", panel);
+        Assert.Contains("size unknown", panel);
+        Assert.DoesNotContain("0 B", history);
+    }
+
+    [Fact]
+    public void Queued_download_is_labelled_in_history()
+    {
+        var task = TaskNamed("later.zip", DownloadStatus.Queued);
+
+        Assert.Contains("Queued", Render(DashboardRenderer.BuildHistoryPanel(new StubService(task))));
+    }
+
     private sealed class StubService(params DownloadTask[] tasks) : IDownloadService
     {
         public Task<Guid> AddDownloadAsync(string url, string outputDirectory) => throw new NotSupportedException();
@@ -81,5 +123,7 @@ public class DashboardRendererTests
         public Task CancelDownloadAsync(Guid downloadId) => Task.CompletedTask;
         public IEnumerable<DownloadTask> GetAllDownloads() => tasks;
         public DownloadTask? GetDownload(Guid downloadId) => tasks.FirstOrDefault(t => t.Id == downloadId);
+        public Task RestoreAsync() => Task.CompletedTask;
+        public Task ShutdownAsync() => Task.CompletedTask;
     }
 }

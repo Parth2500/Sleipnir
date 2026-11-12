@@ -29,7 +29,7 @@ public static class DashboardRenderer
         };
     }
 
-    public static Panel BuildCurrentDownloadPanel(IDownloadService downloadService, Guid? downloadId)
+    public static Panel BuildCurrentDownloadPanel(IDownloadService downloadService, Guid? downloadId, SpeedTracker? speeds = null)
     {
         if (!downloadId.HasValue)
         {
@@ -64,14 +64,14 @@ public static class DashboardRenderer
             };
         }
 
-        return new Panel(BuildProgressView(task))
+        return new Panel(BuildProgressView(task, speeds))
         {
             Header = new PanelHeader("[bold blue]Current Download[/]"),
             Border = BoxBorder.Rounded
         };
     }
 
-    public static Panel BuildHistoryPanel(IDownloadService downloadService)
+    public static Panel BuildHistoryPanel(IDownloadService downloadService, SpeedTracker? speeds = null)
     {
         return new Panel(BuildHistoryView(downloadService.GetAllDownloads()))
         {
@@ -80,7 +80,7 @@ public static class DashboardRenderer
         };
     }
 
-    public static Panel BuildFooter(IDownloadService downloadService, Guid? currentDownloadId)
+    public static Panel BuildFooter(IDownloadService downloadService, Guid? currentDownloadId, SpeedTracker? speeds = null)
     {
         var task = currentDownloadId.HasValue ? downloadService.GetDownload(currentDownloadId.Value) : null;
         var active = downloadService.GetAllDownloads().Count(d => d.Status is DownloadStatus.Downloading or DownloadStatus.Queued);
@@ -88,13 +88,15 @@ public static class DashboardRenderer
             ? "[yellow]Ready for new download[/]"
             : $"Selected: [bold]{Markup.Escape(task.Filename)}[/] ({task.Status})";
 
-        return new Panel(new Markup($"{status} | [dim]{active} active[/]"))
+        var speed = speeds is null ? "" : $" | [dim]⬇ {FormatBytes((long)speeds.TotalBytesPerSecond)}/s[/]";
+
+        return new Panel(new Markup($"{status} | [dim]{active} active[/]{speed}"))
         {
             Border = BoxBorder.None
         };
     }
 
-    public static IRenderable BuildProgressView(DownloadTask task)
+    public static IRenderable BuildProgressView(DownloadTask task, SpeedTracker? speeds = null)
     {
         var table = new Table()
             .Border(TableBorder.None)
@@ -125,7 +127,15 @@ public static class DashboardRenderer
 
         table.AddRow($"[bold]File:[/] {Markup.Escape(task.Filename)}");
         table.AddRow($"[bold]Status:[/] [{statusColor}]{statusText}[/]");
-        table.AddRow($"[bold]Progress:[/] {task.Progress:F2}% ({FormatBytes(task.BytesDownloaded)} / {FormatBytes(task.TotalBytes)})");
+        table.AddRow(task.IsSizeKnown
+            ? $"[bold]Progress:[/] {task.Progress:F2}% ({FormatBytes(task.BytesDownloaded)} / {FormatBytes(task.TotalBytes)})"
+            : $"[bold]Progress:[/] {FormatBytes(task.BytesDownloaded)} [dim](size unknown)[/]");
+
+        if (speeds is not null && task.Status == DownloadStatus.Downloading)
+        {
+            var eta = speeds.GetEta(task);
+            table.AddRow($"[bold]Speed:[/] {FormatBytes((long)speeds.GetBytesPerSecond(task.Id))}/s   [bold]ETA[/] {(eta is { } e ? FormatDuration(e) : "--")}");
+        }
         table.AddEmptyRow();
 
         // Overall Progress Bar
@@ -151,19 +161,11 @@ public static class DashboardRenderer
 
             for (int i = 0; i < task.Segments.Count; i += 2)
             {
-                var seg1 = task.Segments[i];
-                var seg1Progress = seg1.TotalBytes > 0 ? (double)seg1.BytesDownloaded / seg1.TotalBytes * 100 : 0;
-                var seg1Icon = GetSegmentIcon(seg1.Status);
-                var seg1Color = GetSegmentColor(seg1.Status);
-                var seg1Text = $"[{seg1Color}]{seg1Icon} Seg {seg1.Index + 1}: {seg1Progress:F0}%[/]";
+                var seg1Text = SegmentText(task.Segments[i]);
 
                 if (i + 1 < task.Segments.Count)
                 {
-                    var seg2 = task.Segments[i + 1];
-                    var seg2Progress = seg2.TotalBytes > 0 ? (double)seg2.BytesDownloaded / seg2.TotalBytes * 100 : 0;
-                    var seg2Icon = GetSegmentIcon(seg2.Status);
-                    var seg2Color = GetSegmentColor(seg2.Status);
-                    var seg2Text = $"[{seg2Color}]{seg2Icon} Seg {seg2.Index + 1}: {seg2Progress:F0}%[/]";
+                    var seg2Text = SegmentText(task.Segments[i + 1]);
 
                     segmentGrid.AddRow(new Markup(seg1Text), new Markup(seg2Text));
                 }
@@ -234,7 +236,9 @@ public static class DashboardRenderer
             var statusText = download.Status switch
             {
                 DownloadStatus.Completed => $"{statusIcon} Done",
-                DownloadStatus.Downloading => $"{statusIcon} {download.Progress:F0}%",
+                DownloadStatus.Downloading when download.IsSizeKnown => $"{statusIcon} {download.Progress:F0}%",
+                DownloadStatus.Downloading => $"{statusIcon} {FormatBytes(download.BytesDownloaded)}",
+                DownloadStatus.Queued => $"{statusIcon} Queued",
                 DownloadStatus.Paused => $"{statusIcon} Paused",
                 DownloadStatus.Failed => $"{statusIcon} Failed",
                 DownloadStatus.Cancelled => $"{statusIcon} Cancelled",
@@ -246,12 +250,26 @@ public static class DashboardRenderer
                     ? download.Filename.Substring(0, 22) + "..."
                     : download.Filename),
                 statusText,
-                FormatBytes(download.TotalBytes)
+                download.IsSizeKnown ? FormatBytes(download.TotalBytes) : "?"
             );
         }
 
         return table;
     }
+
+    private static string SegmentText(DownloadSegment segment)
+    {
+        var amount = segment.IsOpenEnded
+            ? FormatBytes(segment.BytesDownloaded)
+            : $"{(segment.TotalBytes > 0 ? (double)segment.BytesDownloaded / segment.TotalBytes * 100 : 100):F0}%";
+        return $"[{GetSegmentColor(segment.Status)}]{GetSegmentIcon(segment.Status)} Seg {segment.Index + 1}: {amount}[/]";
+    }
+
+    /// <summary>Formats a duration as m:ss, or h:mm:ss when it is an hour or longer.</summary>
+    public static string FormatDuration(TimeSpan duration) =>
+        duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}"
+            : $"{duration.Minutes}:{duration.Seconds:00}";
 
     public static string FormatBytes(long bytes)
     {

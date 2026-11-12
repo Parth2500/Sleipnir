@@ -28,7 +28,7 @@ To run the TUI the same way (`-it` is required):
 
 ```bash
 podman run -it --rm --security-opt label=disable \
-  -v "$PWD:/src" -v ~/Downloads:/root/Downloads -w /src \
+  -v "$PWD:/src" -v ~/Downloads:/root/Downloads -v dnm-state:/root/.local/share/dnm -w /src \
   mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project "DotNet Download Manager.csproj"
 ```
 
@@ -39,18 +39,22 @@ podman run -it --rm --security-opt label=disable \
 ```
 .
 ├── Core/
-│   ├── Interfaces/       IDownloadService, INetworkClient, IFileStorage, RangeNotSupportedException
-│   └── Models/           DownloadTask, DownloadSegment, DownloadStatus, RemoteFileInfo
+│   ├── Interfaces/       IDownloadService, INetworkClient, IFileStorage, IDownloadStateStore,
+│   │                     RangeNotSupportedException, ServerBusyException
+│   └── Models/           DownloadTask, DownloadSegment, DownloadStatus, RemoteFileInfo, DownloadRecord
 ├── Infrastructure/
-│   ├── Network/          HttpNetworkClient  (HEAD/probe, ranged GET, 206 validation)
-│   └── Storage/          LocalFileStorage   (pre-allocate, offset writes, safe move)
+│   ├── Network/          HttpNetworkClient (probe, ranged GET, 206/429 handling), HappyEyeballs
+│   ├── Persistence/      JsonDownloadStateStore (one atomic JSON file per download)
+│   └── Storage/          LocalFileStorage (pre-allocate, offset writes, safe move)
 ├── Services/
-│   ├── DownloadService.cs     orchestration, runs, retries, pause/resume/cancel
-│   ├── SegmentDownloader.cs   one byte range → disk, with the "counted = persisted" invariant
+│   ├── DownloadService.cs     queue, runs, retry policy, persistence, pause/resume/cancel/shutdown
+│   ├── SegmentDownloader.cs   one byte range → disk; PersistedBytes invariant; stall timeout
 │   ├── FileNameResolver.cs    URL → safe, unique file name
 │   └── DownloadOptions.cs     tunables
-├── UI/DashboardRenderer.cs    Spectre.Console renderables (pure functions)
-├── Program.cs                 composition root + key/render loop
+├── UI/
+│   ├── DashboardRenderer.cs   Spectre.Console renderables (pure functions)
+│   └── SpeedTracker.cs        sliding-window speed and ETA
+├── Program.cs                 composition root, key/render loop, signal handling
 ├── tests/DotNetDownloadManager.Tests/
 └── docs/
 ```
@@ -65,16 +69,20 @@ For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | File | Covers |
 |------|--------|
 | `SegmentDownloaderTests` | No data loss on pause/resume; early connection close is an error |
-| `DownloadServiceTests` | Happy path, no-range servers, range-ignoring servers, pause→resume→pause, cancel, retry, permanent failure, path traversal, no overwrite, unique names, missing folder |
-| `HttpNetworkClientTests` | 200-vs-206 validation, HEAD/probe fallback, User-Agent (stub `HttpMessageHandler`) |
-| `DashboardRendererTests` | Markup characters in file names and errors render literally |
-| `EndToEndTests` | Real HTTP over loopback (`HttpListener`), with and without range support |
+| `DownloadServiceTests` | Happy path, no-range servers, range-ignoring servers, pause→resume→pause, cancel, retry, permanent failure, 429 backoff, 4xx fail-fast, probe retries, path traversal, no overwrite, unique names, missing folder |
+| `PersistenceTests` | Store round-trip, corrupt files skipped, paused download survives restart, shutdown → auto-resume (only missing ranges re-requested), saved progress never includes unflushed bytes, history survives restart |
+| `QueueStallAndUnknownSizeTests` | Concurrency limit and FIFO start, pausing queued downloads, stalled connections retried, unknown-size downloads (incl. mid-stream failure) |
+| `HttpNetworkClientTests` | 200-vs-206 validation, HEAD/probe fallback, unknown size, 429/503 + `Retry-After`, timeouts reported as timeouts, User-Agent (stub `HttpMessageHandler`) |
+| `HappyEyeballsTests` | Address interleaving, a hanging address doesn't block, fast failure moves on, losers cancelled, caller cancellation |
+| `SpeedTrackerTests` | Sliding-window speed, ETA, unknown size, restarts, non-running downloads |
+| `DashboardRendererTests` | Markup characters render literally, unknown size, queued label, speed/ETA, size-unknown crash regression |
+| `EndToEndTests` | Real HTTP over loopback (`HttpListener`), with and without range support, slow body vs header timeout |
 
 ### Test helpers
 
 - **`FakeNetworkClient`** serves a byte array. Its knobs: `SupportsRanges` (what the probe reports),
-  `HonorRanges` (whether ranged requests get partial bodies), and an `OnRequest` hook to throw or
-  substitute a stream per request. `Stalling(from, n)` builds a stream that sends `n` bytes and then
+  `HonorRanges` (whether ranged requests get partial bodies), `ReportSize` (unknown-size servers),
+  an `OnRequest` hook to throw or substitute a stream per request, and `OnProbe` to fail probes. `Stalling(from, n)` builds a stream that sends `n` bytes and then
   blocks until cancelled, which is how pause and cancel are simulated. It also tracks `OpenStreams`
   and `RequestCount`.
 - **`TempDir`** is a throwaway directory that is deleted on dispose.
@@ -112,11 +120,11 @@ podman build -t dnm .
 
 # Podman (rootless): container root = you, so files in ~/Downloads are owned by you
 podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
-  -v ~/Downloads:/root/Downloads dnm
+  -v ~/Downloads:/root/Downloads -v dnm-state:/root/.local/share/dnm dnm
 
 # Docker: run as your own UID so the container can write to your ~/Downloads
 docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/dnm \
-  -v ~/Downloads:/home/dnm/Downloads dnm
+  -v ~/Downloads:/home/dnm/Downloads -v dnm-state:/home/dnm/.local/share/dnm dnm
 ```
 
 See the [User Guide](USER_GUIDE.md#podman--docker) for why each flag is needed.

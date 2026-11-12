@@ -22,11 +22,19 @@ public sealed class FakeNetworkClient : INetworkClient
     /// <summary>When false, Range headers are ignored and the whole file is returned (like a 200 response).</summary>
     public bool HonorRanges { get; init; } = true;
 
+    /// <summary>When false, the probe reports no size (like a chunked response without Content-Length).</summary>
+    public bool ReportSize { get; init; } = true;
+
     /// <summary>
     /// Optional hook run before each stream is served. Receives the request number (0-based) and the
     /// requested start offset. Return a stream to serve instead, throw to fail, or return null for the default.
     /// </summary>
     public Func<int, long?, CancellationToken, Stream?>? OnRequest { get; init; }
+
+    /// <summary>Optional hook run before each probe; receives the probe number (0-based). Throw to fail it.</summary>
+    public Action<int>? OnProbe { get; init; }
+
+    private int _probeCount;
 
     public int OpenStreams => Volatile.Read(ref _openStreams);
     public int RequestCount => Volatile.Read(ref _requestCount);
@@ -35,7 +43,10 @@ public sealed class FakeNetworkClient : INetworkClient
     public byte[] Data => _data;
 
     public Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default)
-        => Task.FromResult(new RemoteFileInfo(_data.Length, SupportsRanges));
+    {
+        OnProbe?.Invoke(Interlocked.Increment(ref _probeCount) - 1);
+        return Task.FromResult(new RemoteFileInfo(ReportSize ? _data.Length : null, SupportsRanges));
+    }
 
     public Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken cancellationToken = default)
     {

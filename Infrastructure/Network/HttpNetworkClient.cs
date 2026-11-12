@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Net.Sockets;
 using System.Net.Http.Headers;
 using DotNetDownloadManager.Core.Interfaces;
 using DotNetDownloadManager.Core.Models;
@@ -11,7 +12,8 @@ public class HttpNetworkClient : INetworkClient
 
     private readonly HttpClient _httpClient;
 
-    public HttpNetworkClient() : this(CreateDefaultClient())
+    /// <param name="headersTimeout">Maximum time to wait for response headers (default 60 s).</param>
+    public HttpNetworkClient(TimeSpan? headersTimeout = null) : this(CreateDefaultClient(headersTimeout ?? TimeSpan.FromSeconds(60)))
     {
     }
 
@@ -21,18 +23,47 @@ public class HttpNetworkClient : INetworkClient
         _httpClient = httpClient;
     }
 
-    private static HttpClient CreateDefaultClient() => new(new SocketsHttpHandler
+    private static HttpClient CreateDefaultClient(TimeSpan headersTimeout) => new(new SocketsHttpHandler
     {
         // Recycle connections so DNS changes are picked up during long sessions.
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         ConnectTimeout = TimeSpan.FromSeconds(30),
+        // Race IPv6/IPv4 so a broken IPv6 route can't stall every connection (see HappyEyeballs).
+        ConnectCallback = async (context, ct) =>
+        {
+            var socket = await HappyEyeballs.ConnectSocketAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, ct);
+            return new NetworkStream(socket, ownsSocket: true);
+        },
     })
     {
         // Covers sending the request and receiving headers only; body reads are bounded by cancellation.
-        Timeout = TimeSpan.FromSeconds(60),
+        Timeout = headersTimeout,
     };
 
-    public async Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default)
+    public Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default) =>
+        WithTimeoutsReported(url, cancellationToken, () => ProbeAsync(url, cancellationToken));
+
+    public Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken cancellationToken = default) =>
+        WithTimeoutsReported(url, cancellationToken, () => OpenStreamAsync(url, from, to, cancellationToken));
+
+    /// <summary>
+    /// HttpClient reports its own timeouts (connect/headers) as <see cref="TaskCanceledException"/>. Turn those
+    /// into <see cref="TimeoutException"/> so they read sensibly and are retried rather than mistaken for a pause.
+    /// </summary>
+    private static async Task<T> WithTimeoutsReported<T>(string url, CancellationToken cancellationToken, Func<Task<T>> operation)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            var host = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
+            throw new TimeoutException($"Timed out connecting to {host} or waiting for its response.", ex);
+        }
+    }
+
+    private async Task<RemoteFileInfo> ProbeAsync(string url, CancellationToken cancellationToken)
     {
         long? size = null;
 
@@ -55,6 +86,7 @@ public class HttpNetworkClient : INetworkClient
         probe.Headers.Range = new RangeHeaderValue(0, 0);
         using var probeResponse = await _httpClient.SendAsync(probe, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
+        ThrowIfBusy(probeResponse, url);
         if (probeResponse.StatusCode == HttpStatusCode.PartialContent &&
             probeResponse.Content.Headers.ContentRange?.Length is long total)
         {
@@ -65,7 +97,7 @@ public class HttpNetworkClient : INetworkClient
         return new RemoteFileInfo(probeResponse.Content.Headers.ContentLength ?? size, SupportsRanges: false);
     }
 
-    public async Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken cancellationToken = default)
+    private async Task<Stream> OpenStreamAsync(string url, long? from, long? to, CancellationToken cancellationToken)
     {
         var request = CreateRequest(HttpMethod.Get, url);
         var rangeRequested = from.HasValue || to.HasValue;
@@ -78,6 +110,7 @@ public class HttpNetworkClient : INetworkClient
         try
         {
             response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            ThrowIfBusy(response, url);
             response.EnsureSuccessStatusCode();
 
             // A 200 to a ranged request means the server sent the WHOLE file; writing it at the
@@ -96,6 +129,20 @@ public class HttpNetworkClient : INetworkClient
             request.Dispose();
             throw;
         }
+    }
+
+    /// <summary>429 / 503 mean "come back later", not "this failed": report them with the server's Retry-After.</summary>
+    private static void ThrowIfBusy(HttpResponseMessage response, string url)
+    {
+        if (response.StatusCode is not (HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)) return;
+
+        var retryAfter = response.Headers.RetryAfter switch
+        {
+            { Delta: { } delta } => delta,
+            { Date: { } date } => date - DateTimeOffset.UtcNow is var wait && wait > TimeSpan.Zero ? wait : TimeSpan.Zero,
+            _ => (TimeSpan?)null,
+        };
+        throw new ServerBusyException(url, (int)response.StatusCode, retryAfter);
     }
 
     private static HttpRequestMessage CreateRequest(HttpMethod method, string url)

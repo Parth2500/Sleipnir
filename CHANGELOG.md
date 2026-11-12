@@ -1,6 +1,46 @@
 # Changelog
 
-## Unreleased
+## Unreleased: Phase 1, "daily driver"
+
+### Added
+
+- **Resume after restart.** Download state is saved to `~/.local/share/dnm/downloads/` (one atomic
+  JSON file per download). On start-up, downloads that were running or queued resume automatically;
+  paused, failed and finished ones (history) come back as they were.
+- **Crash-safe progress.** Segments track `PersistedBytes` (confirmed on disk) separately from live
+  progress, and only that is saved, so a crash can never make a resume skip data.
+- **Graceful shutdown** on `Q`, Ctrl+C, SIGTERM (`kill`, `podman stop`) and SIGHUP. Buffers are
+  flushed and progress saved. A second Ctrl+C exits immediately.
+- **Download queue.** At most 3 downloads (`MaxConcurrentDownloads`) transfer at once; the rest wait as
+  Queued and start in order.
+- **Speed and ETA** for each download, and total speed in the footer (5 s sliding window).
+- **Stall detection.** A connection that sends nothing for 30 s (`StallTimeout`) is retried.
+- **Unknown-size downloads.** Servers that send no `Content-Length` are downloaded as one open-ended
+  stream, with "size unknown" shown in the UI.
+- **Rate-limit handling.** HTTP 429/503 honour `Retry-After` (or back off exponentially up to 60 s),
+  with a separate budget of 10 retries.
+- **Happy Eyeballs** (RFC 8305) connection racing between IPv6 and IPv4.
+
+### Fixed
+
+- **Downloads failed on networks with broken IPv6.** .NET tried the unreachable IPv6 address until
+  the 30 s connect timeout and never tried IPv4 (seen with `proof.ovh.net`).
+- **Permanent HTTP errors (404, 403, 410…) were retried three times for nothing.** They now fail at
+  once.
+- **The initial server probe had no retries,** so a single hiccup or 429 failed the whole download.
+- **Timeouts were reported as `The operation was canceled.`** They are now `TimeoutException`s with a
+  readable message, and are retried.
+- **Queued downloads had no label** in the history panel.
+
+### Changed
+
+- `IDownloadService` gained `RestoreAsync()` and `ShutdownAsync()`. `DownloadService` takes an
+  optional `IDownloadStateStore`.
+- `HttpNetworkClient()` takes an optional `headersTimeout`, which bounds only the wait for response
+  headers.
+- Container instructions add a `dnm-state` volume, so state survives between runs.
+
+## 0.1.0 (2026-11-12)
 
 ### Fixed
 

@@ -1,3 +1,4 @@
+using System.Net;
 using DotNetDownloadManager.Core.Models;
 using DotNetDownloadManager.Infrastructure.Storage;
 using DotNetDownloadManager.Services;
@@ -156,6 +157,67 @@ public class DownloadServiceTests
         Assert.Equal(DownloadStatus.Failed, service.GetDownload(id)!.Status);
         Assert.Contains("404", service.GetDownload(id)!.ErrorMessage);
         Assert.True(await TestHelpers.WaitUntil(() => network.OpenStreams == 0), $"{network.OpenStreams} segments still downloading after failure");
+    }
+
+    [Fact]
+    public async Task Busy_server_is_waited_out_beyond_the_normal_retry_budget()
+    {
+        using var dir = new TempDir();
+        var network = new FakeNetworkClient(TestHelpers.RandomBytes(50_000))
+        {
+            // The server says "429, try again in 20 ms" five times before letting us in.
+            OnRequest = (n, _, _) => n < 5 ? throw new Core.Interfaces.ServerBusyException(Url, 429, TimeSpan.FromMilliseconds(20)) : null,
+        };
+        var service = new DownloadService(network, new LocalFileStorage(),
+            new DownloadOptions { SegmentCount = 1, MaxRetries = 1, RetryDelay = TimeSpan.Zero, MaxBusyRetries = 10 });
+
+        var id = await service.AddDownloadAsync(Url, dir.Path);
+        Assert.True(await TestHelpers.WaitUntil(() => IsFinished(service.GetDownload(id))));
+
+        Assert.True(service.GetDownload(id)!.Status == DownloadStatus.Completed, service.GetDownload(id)!.ErrorMessage);
+        Assert.Equal(network.Data, await File.ReadAllBytesAsync(service.GetDownload(id)!.DestinationPath));
+    }
+
+    [Fact]
+    public async Task Probe_failures_are_retried_too()
+    {
+        using var dir = new TempDir();
+        var network = new FakeNetworkClient(TestHelpers.RandomBytes(10_000))
+        {
+            OnProbe = n =>
+            {
+                if (n == 0) throw new Core.Interfaces.ServerBusyException(Url, 429, TimeSpan.FromMilliseconds(10));
+                if (n == 1) throw new HttpRequestException("connection reset");
+            },
+        };
+        var service = new DownloadService(network, new LocalFileStorage(),
+            new DownloadOptions { SegmentCount = 1, MaxRetries = 2, RetryDelay = TimeSpan.Zero });
+
+        var id = await service.AddDownloadAsync(Url, dir.Path);
+        Assert.True(await TestHelpers.WaitUntil(() => IsFinished(service.GetDownload(id))));
+
+        Assert.True(service.GetDownload(id)!.Status == DownloadStatus.Completed, service.GetDownload(id)!.ErrorMessage);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.Gone)]
+    public async Task Permanent_http_errors_fail_immediately_without_retrying(HttpStatusCode status)
+    {
+        using var dir = new TempDir();
+        var network = new FakeNetworkClient(TestHelpers.RandomBytes(50_000))
+        {
+            OnRequest = (_, _, _) => throw new HttpRequestException($"HTTP {(int)status}", null, status),
+        };
+        var service = new DownloadService(network, new LocalFileStorage(),
+            new DownloadOptions { SegmentCount = 1, MaxRetries = 3, RetryDelay = TimeSpan.Zero });
+
+        var id = await service.AddDownloadAsync(Url, dir.Path);
+        Assert.True(await TestHelpers.WaitUntil(() => IsFinished(service.GetDownload(id))));
+
+        Assert.Equal(DownloadStatus.Failed, service.GetDownload(id)!.Status);
+        Assert.Equal(1, network.RequestCount);
     }
 
     [Theory]

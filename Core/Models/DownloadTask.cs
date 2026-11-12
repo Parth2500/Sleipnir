@@ -14,6 +14,9 @@ public class DownloadTask
     /// <summary>Whether the server honours Range requests (segmented download and resume).</summary>
     public bool SupportsRanges { get; set; }
 
+    /// <summary>False when the server did not report a size; <see cref="TotalBytes"/> is then 0 until the download finishes.</summary>
+    public bool IsSizeKnown { get; set; } = true;
+
     public DownloadStatus Status { get; set; } = DownloadStatus.Queued;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? ErrorMessage { get; set; }

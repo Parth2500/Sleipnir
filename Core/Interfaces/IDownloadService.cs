@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using DotNetDownloadManager.Core.Models;
@@ -13,4 +13,10 @@ public interface IDownloadService
     Task CancelDownloadAsync(Guid downloadId);
     IEnumerable<DownloadTask> GetAllDownloads();
     DownloadTask? GetDownload(Guid downloadId);
+
+    /// <summary>Loads downloads saved by a previous session. Interrupted ones are queued again.</summary>
+    Task RestoreAsync();
+
+    /// <summary>Stops all transfers, saving their progress so the next session can resume them.</summary>
+    Task ShutdownAsync();
 }

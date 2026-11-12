@@ -32,18 +32,41 @@ public class EndToEndTests
         Assert.Equal(data, await File.ReadAllBytesAsync(task.DestinationPath));
     }
 
+    [Fact]
+    public async Task Body_that_takes_longer_than_the_header_timeout_still_downloads()
+    {
+        // The header timeout must only bound waiting for response headers, never the body transfer:
+        // a large segment on a slow link can take many minutes.
+        var data = TestHelpers.RandomBytes(200_000);
+        using var server = new LoopbackFileServer(data, ranges: true, throttle: TimeSpan.FromMilliseconds(100));
+        using var dir = new TempDir();
+        var service = new DownloadService(new HttpNetworkClient(headersTimeout: TimeSpan.FromSeconds(1)), new LocalFileStorage(),
+            new DownloadOptions { SegmentCount = 1, MaxRetries = 0 });
+
+        var id = await service.AddDownloadAsync(server.Url + "slow.bin", dir.Path); // ~2.5 s to transfer
+        Assert.True(await TestHelpers.WaitUntil(
+            () => service.GetDownload(id)!.Status is DownloadStatus.Completed or DownloadStatus.Failed, 15000));
+
+        var task = service.GetDownload(id)!;
+        Assert.True(task.Status == DownloadStatus.Completed, task.ErrorMessage);
+        Assert.Equal(data, await File.ReadAllBytesAsync(task.DestinationPath));
+    }
+
     private sealed class LoopbackFileServer : IDisposable
     {
         private readonly HttpListener _listener = new();
         private readonly byte[] _data;
         private readonly bool _ranges;
+        private readonly TimeSpan _throttle;
 
         public string Url { get; }
 
-        public LoopbackFileServer(byte[] data, bool ranges)
+        /// <param name="throttle">If set, the body is sent in 8 KB chunks with this pause between them.</param>
+        public LoopbackFileServer(byte[] data, bool ranges, TimeSpan throttle = default)
         {
             _data = data;
             _ranges = ranges;
+            _throttle = throttle;
             var port = FreePort();
             Url = $"http://127.0.0.1:{port}/";
             _listener.Prefixes.Add(Url);
@@ -90,7 +113,19 @@ public class EndToEndTests
                 res.ContentLength64 = end - start + 1;
                 if (ctx.Request.HttpMethod != "HEAD")
                 {
-                    await res.OutputStream.WriteAsync(_data.AsMemory((int)start, (int)(end - start + 1)));
+                    if (_throttle == TimeSpan.Zero)
+                    {
+                        await res.OutputStream.WriteAsync(_data.AsMemory((int)start, (int)(end - start + 1)));
+                    }
+                    else
+                    {
+                        for (var pos = start; pos <= end; pos += 8192)
+                        {
+                            await res.OutputStream.WriteAsync(_data.AsMemory((int)pos, (int)Math.Min(8192, end - pos + 1)));
+                            await res.OutputStream.FlushAsync();
+                            await Task.Delay(_throttle);
+                        }
+                    }
                 }
             }
             catch { /* client went away */ }
