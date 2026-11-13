@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Sleipnir.Engine/Sleipnir.Engine.csproj" />
+    <ProjectReference Include="../Sleipnir.Server/Sleipnir.Server.csproj" />
     <ProjectReference Include="../Sleipnir.Core/Sleipnir.Core.csproj" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
     <PackageReference Include="Spectre.Console" Version="0.54.0" />

@@ -1,15 +1,31 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
+using Sleipnir;
 using Sleipnir.Core.Models;
-using Sleipnir.Infrastructure.Network;
-using Sleipnir.Infrastructure.Persistence;
-using Sleipnir.Infrastructure.Storage;
-using Sleipnir.Services;
+using Sleipnir.Server.Hosting;
 using Sleipnir.UI;
 using Spectre.Console;
 
+// --- Commands ---
+if (args.Length > 0)
+{
+    if (args[0] == "daemon") return await DaemonCommand.RunAsync();
+
+    Console.Error.WriteLine("Usage: dnm            start the interactive UI");
+    Console.Error.WriteLine("       dnm daemon     run the download engine as a background service");
+    return 2;
+}
+
+// Only one process per user may drive the download state: the UI and the daemon share one lock.
+var paths = AppPaths.ForCurrentUser();
+using var instanceLock = InstanceLock.TryAcquire(paths.Runtime);
+if (instanceLock is null)
+{
+    Console.Error.WriteLine(InstanceMessages.AlreadyRunning(paths.Runtime));
+    return 1;
+}
+
 // --- Composition root ---
-var stateStore = new JsonDownloadStateStore(JsonDownloadStateStore.DefaultDirectory());
-var downloadService = new DownloadService(new HttpNetworkClient(), new LocalFileStorage(), new DownloadOptions(), stateStore);
+var downloadService = EngineFactory.Create();
 var outputDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
 var ui = new TuiController(downloadService, outputDirectory);
 var speeds = new SpeedTracker();
@@ -81,3 +97,4 @@ var unfinished = downloadService.GetAllDownloads().Count(d => d.Status == Downlo
 AnsiConsole.MarkupLine(unfinished > 0
     ? $"[grey62]{unfinished} download{(unfinished == 1 ? "" : "s")} will resume next time you start Sleipnir.[/]"
     : "[grey62]Bye.[/]");
+return 0;
