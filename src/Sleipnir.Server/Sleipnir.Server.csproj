@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Sleipnir</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Sleipnir.Core/Sleipnir.Core.csproj" />
+    <ProjectReference Include="../Sleipnir.Engine/Sleipnir.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

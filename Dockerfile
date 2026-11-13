@@ -13,6 +13,7 @@ WORKDIR /src
 COPY ["Directory.Build.props", "."]
 COPY ["src/Sleipnir.Core/Sleipnir.Core.csproj", "src/Sleipnir.Core/"]
 COPY ["src/Sleipnir.Engine/Sleipnir.Engine.csproj", "src/Sleipnir.Engine/"]
+COPY ["src/Sleipnir.Server/Sleipnir.Server.csproj", "src/Sleipnir.Server/"]
 COPY ["src/Sleipnir.App/Sleipnir.App.csproj", "src/Sleipnir.App/"]
 RUN dotnet restore "src/Sleipnir.App/Sleipnir.App.csproj"
 COPY . .

@@ -22,6 +22,7 @@
     <ProjectReference Include="../../src/Sleipnir.App/Sleipnir.App.csproj" />
     <ProjectReference Include="../../src/Sleipnir.Core/Sleipnir.Core.csproj" />
     <ProjectReference Include="../../src/Sleipnir.Engine/Sleipnir.Engine.csproj" />
+    <ProjectReference Include="../../src/Sleipnir.Server/Sleipnir.Server.csproj" />
   </ItemGroup>
 
 </Project>
