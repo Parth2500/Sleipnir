@@ -41,6 +41,32 @@ flowchart TD
 | `Sleipnir.App/UI` | Interactive state and key handling (`TuiController`, `LineEditor`, `SlashCommands`), screen rendering (`TuiRenderer`), speed measurement | Core |
 | `Sleipnir.App/Program.cs` | Composition root, the keyboard/render loop, signal handling | everything |
 
+## The daemon
+
+`dnm daemon` hosts the same engine behind a local API. `Sleipnir.Server` is a library (ASP.NET Core
+minimal APIs on Kestrel) that wraps any `IDownloadService`:
+
+```mermaid
+flowchart LR
+    CLIENT["curl / future clients"] -- "HTTP 127.0.0.1, Bearer token" --> DH["Sleipnir.Server<br/>DaemonHost"]
+    DH --> IDS["IDownloadService"]
+    IDS -.implemented by.-> DS["Engine/DownloadService"]
+    CMD["App/DaemonCommand"] --> LOCK["InstanceLock<br/>(daemon.lock)"]
+    CMD --> DH
+    CMD --> INFO["DaemonInfo<br/>(daemon.json)"]
+```
+
+- **Request pipeline:** problem+json error mapping → `Host` allowlist (`localhost`, `127.0.0.1`, `[::1]`)
+  → bearer-token check (the right token always passes; wrong guesses are throttled; requests without
+  credentials are refused without counting) → endpoints. No CORS headers are ever sent.
+- **One engine per user:** `InstanceLock` is an exclusive open file handle in the runtime directory,
+  taken by both `dnm daemon` and the interactive screen, so two processes never write the same state.
+  The operating system releases it if the process dies.
+- **Ports:** `127.0.0.1` and `[::1]` (when the OS has IPv6) share one port, starting at 7766 and moving
+  up to 20 ports if busy. Clients must read the real port from `daemon.json`.
+- **Shutdown:** `POST /api/v1/server/shutdown`, SIGTERM, SIGINT or SIGHUP stop the host, then call
+  `ShutdownAsync` so progress is saved and downloads resume on the next start.
+
 ## Download lifecycle
 
 ```mermaid

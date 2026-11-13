@@ -49,7 +49,7 @@ is the most complete open-source command-line downloader, so it serves as the be
 
 | Feature | aria2 | Sleipnir | Notes |
 |---|:---:|:---:|---|
-| Remote control API | ✅ JSON-RPC / XML-RPC / WebSocket | 🗺️ Phase 3 (own local API) | 💡 An aria2-compatible JSON-RPC layer would let existing front ends (AriaNg, Motrix) and extensions work with Sleipnir |
+| Remote control API | ✅ JSON-RPC / XML-RPC / WebSocket | 🟡 Local REST API (token, loopback) in Phase 2; WebSocket events and OpenAPI next | 💡 An aria2-compatible JSON-RPC layer would let existing front ends (AriaNg, Motrix) and extensions work with Sleipnir |
 | Non-interactive CLI mode | ✅ (its main mode) | 🗺️ Phase 3 | `dnm <url> [-o dir]` |
 | Built-in interactive UI | ❌ (third-party front ends only) | ✅ live TUI dashboard | **Sleipnir advantage** |
 | Web dashboard | ❌ (via AriaNg) | 💡 | Comes almost for free once the local API exists |

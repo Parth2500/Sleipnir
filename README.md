@@ -26,6 +26,12 @@ one file. It can pause, resume (even after a restart), cancel, queue, and retry 
   ↑↓ select · Space pause/resume · Enter details · Del cancel · ? for help
 ```
 
+## Background service
+
+`dnm daemon` runs the download engine without the screen, with a token-protected local REST API;
+`dnm service install` keeps it running as a systemd user service. See the
+[User Guide](docs/USER_GUIDE.md#running-as-a-background-service).
+
 ## Quick start
 
 **Prebuilt binary (64-bit Linux, no .NET needed):** build it with

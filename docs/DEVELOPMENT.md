@@ -78,12 +78,15 @@ tar -czf dnm-linux-x64.tar.gz dnm-linux-x64 && sha256sum dnm-linux-x64.tar.gz > 
 │   │   ├── Interfaces/        IDownloadService, INetworkClient, IFileStorage, IDownloadStateStore,
 │   │   │                      RangeNotSupportedException, ServerBusyException
 │   │   └── Models/            DownloadTask, DownloadSegment, DownloadStatus, RemoteFileInfo, DownloadRecord
+│   ├── Sleipnir.Server/       the local REST API (ASP.NET Core): DaemonHost, auth, instance lock, app paths
 │   ├── Sleipnir.Engine/       the download engine; no console and no web framework
 │   │   ├── Services/          DownloadService (queue, runs, retry, persistence), SegmentDownloader,
 │   │   │                      FileNameResolver, DownloadOptions
 │   │   └── Infrastructure/    HttpNetworkClient + HappyEyeballs, LocalFileStorage, JsonDownloadStateStore
 │   └── Sleipnir.App/          the `dnm` executable
-│       ├── Program.cs         composition root, key/render loop, signal handling
+│       ├── Program.cs         command dispatch, composition root, key/render loop, signal handling
+│       ├── DaemonCommand.cs   `dnm daemon`
+│       ├── Service/           `dnm service …` (systemd user unit)
 │       └── UI/                TuiController, TuiRenderer, LineEditor, SlashCommands, SpeedTracker, Format
 ├── tests/Sleipnir.Tests/
 └── docs/
@@ -108,6 +111,12 @@ For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | `Tui/LineEditorAndCommandTests` | Editing keys, cursor movement, word/line deletion; command suggestions and prefix parsing |
 | `Tui/TuiControllerTests` | Paste-to-add (incl. several URLs), invalid input, selection and default selection, Space pause/resume, details, Del confirmation, Ctrl+C clear/quit, suggestions + Tab, commands, help, toasts |
 | `Tui/TuiRendererTests` | Empty state, rows, speed/ETA, header, escaping, details, unknown size, waiting segments, suggestions, help, toasts, narrow terminals, scrolling, fits the terminal height |
+| `ArchitectureTests` | Core has only framework references; Engine has no console/web references; state folder unchanged |
+| `Server/AppPathsTests`, `SecretTests`, `InstanceTests` | Per-OS folders, `0600` secret files and the admin token, single-instance lock, `daemon.json` |
+| `Server/DaemonHostTests` | Token and Host checks, no CORS, throttling, port fallback (real Kestrel on loopback) |
+| `Server/DownloadEndpointTests` | Paging, validation, body limit, idempotency keys, control verbs, auth on every route |
+| `Server/DaemonProcessTests` | Real `dnm daemon` processes: start, second instance, TUI/daemon lock, shutdown, SIGTERM, crash recovery |
+| `ServiceCommandTests` | systemd unit text and install/uninstall/status with a fake `systemctl` |
 | `EndToEndTests` | Real HTTP over loopback (`HttpListener`), with and without range support, slow body vs header timeout |
 
 ### Test helpers

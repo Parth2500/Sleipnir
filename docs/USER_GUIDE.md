@@ -48,6 +48,49 @@ docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/dnm \
   history survives between container runs. Without it, every run starts empty.
 - `podman stop` / `docker stop` shut Sleipnir down gracefully and save progress, just like quitting.
 
+## Running as a background service
+
+Sleipnir can run without the interactive screen: `dnm daemon` starts the download engine as a
+background process with a local API. Downloads keep running and resume after a restart.
+
+```bash
+dnm daemon                 # run in the foreground (what a service manager calls)
+dnm service install        # Linux: install and start a systemd user service
+dnm service status
+dnm service uninstall
+loginctl enable-linger $USER   # optional: keep it running when logged out, start it at boot
+```
+
+`dnm service install` must be run from the published `dnm` executable (not `dotnet run`).
+
+Only one Sleipnir can run per user: while the daemon is running, plain `dnm` explains that and exits
+(the screen will connect to the daemon in a later release). If the daemon stops unexpectedly, the lock
+is released by the system and the next start works.
+
+**Where things are** (Linux; `XDG_*` variables are honoured):
+
+| File | Purpose |
+|---|---|
+| `$XDG_RUNTIME_DIR/dnm/daemon.json` | port, process id and version of the running daemon |
+| `$XDG_RUNTIME_DIR/dnm/admin.token` | the local admin token (readable only by you) |
+| `~/.local/share/dnm/downloads/` | saved downloads (same as before) |
+
+The API listens on `127.0.0.1` (port 7766, or the next free one: read it from `daemon.json`) and
+answers only to the host names `localhost`, `127.0.0.1` and `[::1]`. Everything except
+`GET /api/v1/server` needs the token:
+
+```bash
+PORT=$(jq .port $XDG_RUNTIME_DIR/dnm/daemon.json); TOKEN=$(cat $XDG_RUNTIME_DIR/dnm/admin.token)
+curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"urls":["https://example.com/file.zip"]}' http://localhost:$PORT/api/v1/downloads
+curl -H "Authorization: Bearer $TOKEN" http://localhost:$PORT/api/v1/downloads
+```
+
+Endpoints: `GET /server`, `POST /server/shutdown`, `GET/POST /downloads`, `GET/DELETE /downloads/{id}`,
+`POST /downloads/{id}/pause|resume|cancel`. Errors are `application/problem+json` with a stable `code`.
+Keep the token private: anyone who has it controls your downloads. Only your own machine can reach the
+API; sharing it on your home network, users and phone pairing are planned.
+
 ## The screen
 
 Sleipnir takes over the terminal (like `htop` or `less`) and gives it back when you quit.

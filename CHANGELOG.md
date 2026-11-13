@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added: background service and local API (Phase 2, step 2)
+
+- **`dnm daemon`** runs the download engine without the screen, as a single instance per user.
+  It listens on `127.0.0.1` (port 7766, or the next free one, recorded in `daemon.json`) and stops
+  cleanly on SIGTERM, SIGINT, SIGHUP or `POST /api/v1/server/shutdown`, saving progress.
+- **Local REST API** (`/api/v1`): server info, shutdown, and listing, adding (with `Idempotency-Key`),
+  inspecting, pausing, resuming, cancelling and removing downloads. Bearer-token protected (the token
+  is in `admin.token`, readable only by you), `Host` allowlist against DNS rebinding, no CORS, wrong
+  guesses throttled, errors as `application/problem+json` with stable codes.
+- **`dnm service install | uninstall | status`** manages a systemd user service (Linux).
+- Plain `dnm` now refuses to start while the daemon runs (and vice versa) so two processes never
+  share the download state; unknown arguments print usage and exit with code 2.
+
 ### Internal: library split (Phase 2, step 1)
 
 - Code split into `Sleipnir.Core`, `Sleipnir.Engine` and the `dnm` app under `src/`; the solution is
