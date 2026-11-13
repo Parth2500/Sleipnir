@@ -8,9 +8,9 @@
 ## Build, run, test
 
 ```bash
-dotnet build "DotNet Download Manager.sln"
-dotnet run --project "DotNet Download Manager.csproj"
-dotnet test "DotNet Download Manager.sln"
+dotnet build Sleipnir.sln
+dotnet run --project src/Sleipnir.App/Sleipnir.App.csproj
+dotnet test Sleipnir.sln
 ```
 
 The suite runs in well under a second, apart from the loopback HTTP end-to-end test.
@@ -21,7 +21,7 @@ Build and test in a container instead:
 
 ```bash
 podman run --rm --security-opt label=disable -v "$PWD:/src" -w /src \
-  mcr.microsoft.com/dotnet/sdk:10.0 dotnet test "DotNet Download Manager.sln"
+  mcr.microsoft.com/dotnet/sdk:10.0 dotnet test Sleipnir.sln
 ```
 
 To run the TUI the same way (`-it` is required):
@@ -29,7 +29,7 @@ To run the TUI the same way (`-it` is required):
 ```bash
 podman run -it --rm --security-opt label=disable \
   -v "$PWD:/src" -v ~/Downloads:/root/Downloads -v dnm-state:/root/.local/share/dnm -w /src \
-  mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project "DotNet Download Manager.csproj"
+  mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/Sleipnir.App/Sleipnir.App.csproj
 ```
 
 (`docker` works the same way.)
@@ -37,10 +37,10 @@ podman run -it --rm --security-opt label=disable \
 ## Production build (Linux)
 
 ```bash
-dotnet publish "DotNet Download Manager.csproj" -p:PublishProfile=linux-x64
+dotnet publish src/Sleipnir.App/Sleipnir.App.csproj -p:PublishProfile=linux-x64
 # or, without a local .NET 10 SDK:
 podman run --rm --security-opt label=disable -v "$PWD:/src" -w /src \
-  mcr.microsoft.com/dotnet/sdk:10.0 dotnet publish "DotNet Download Manager.csproj" -p:PublishProfile=linux-x64
+  mcr.microsoft.com/dotnet/sdk:10.0 dotnet publish src/Sleipnir.App/Sleipnir.App.csproj -p:PublishProfile=linux-x64
 ```
 
 This produces **`artifacts/linux-x64/dnm`**: one self-contained executable (about 43 MB) that runs
@@ -53,7 +53,7 @@ on 64-bit Linux with glibc and **no .NET installed**. The settings live in
 | `EnableCompressionInSingleFile` | Smaller download |
 | `PublishReadyToRun` | Precompiled code for faster start-up |
 | `InvariantGlobalization` | No dependency on `libicu` |
-| `AssemblyName=dnm` | A short command name |
+| `AssemblyName=dnm` (in the app `.csproj`) | A short command name |
 
 Not trimmed: `System.Text.Json` (the state store) and Spectre.Console use reflection, and trimming
 would risk breaking them.
@@ -71,33 +71,27 @@ tar -czf dnm-linux-x64.tar.gz dnm-linux-x64 && sha256sum dnm-linux-x64.tar.gz > 
 
 ```
 .
-├── Core/
-│   ├── Interfaces/       IDownloadService, INetworkClient, IFileStorage, IDownloadStateStore,
-│   │                     RangeNotSupportedException, ServerBusyException
-│   └── Models/           DownloadTask, DownloadSegment, DownloadStatus, RemoteFileInfo, DownloadRecord
-├── Infrastructure/
-│   ├── Network/          HttpNetworkClient (probe, ranged GET, 206/429 handling), HappyEyeballs
-│   ├── Persistence/      JsonDownloadStateStore (one atomic JSON file per download)
-│   └── Storage/          LocalFileStorage (pre-allocate, offset writes, safe move)
-├── Services/
-│   ├── DownloadService.cs     queue, runs, retry policy, persistence, pause/resume/cancel/shutdown
-│   ├── SegmentDownloader.cs   one byte range → disk; PersistedBytes invariant; stall timeout
-│   ├── FileNameResolver.cs    URL → safe, unique file name
-│   └── DownloadOptions.cs     tunables
-├── UI/
-│   ├── TuiController.cs       UI state and key handling (input box, selection, commands, toasts)
-│   ├── TuiRenderer.cs         whole-screen rendering (pure: state → Spectre.Console renderable)
-│   ├── LineEditor.cs          single-line text input with editing keys
-│   ├── SlashCommands.cs       /commands, prefix parsing and autocomplete
-│   ├── SpeedTracker.cs        sliding-window speed and ETA
-│   └── Format.cs              bytes, durations, fit-to-width
-├── Program.cs                 composition root, key/render loop, signal handling
+├── Directory.Build.props      shared: net10.0, nullable, implicit usings
+├── Sleipnir.sln
+├── src/
+│   ├── Sleipnir.Core/         models and interfaces; no dependencies beyond the framework
+│   │   ├── Interfaces/        IDownloadService, INetworkClient, IFileStorage, IDownloadStateStore,
+│   │   │                      RangeNotSupportedException, ServerBusyException
+│   │   └── Models/            DownloadTask, DownloadSegment, DownloadStatus, RemoteFileInfo, DownloadRecord
+│   ├── Sleipnir.Engine/       the download engine; no console and no web framework
+│   │   ├── Services/          DownloadService (queue, runs, retry, persistence), SegmentDownloader,
+│   │   │                      FileNameResolver, DownloadOptions
+│   │   └── Infrastructure/    HttpNetworkClient + HappyEyeballs, LocalFileStorage, JsonDownloadStateStore
+│   └── Sleipnir.App/          the `dnm` executable
+│       ├── Program.cs         composition root, key/render loop, signal handling
+│       └── UI/                TuiController, TuiRenderer, LineEditor, SlashCommands, SpeedTracker, Format
 ├── tests/DotNetDownloadManager.Tests/
 └── docs/
 ```
 
-`tests/` sits inside the app's project folder, so the app's `.csproj` excludes it with
-`<Compile Remove="tests/**" />`. Keep that line if you move things around.
+Layering is enforced by `ArchitectureTests`: Core references only the framework, and Engine never
+references Spectre.Console or ASP.NET, so it can be reused by a future Android app.
+C# namespaces still start with `DotNetDownloadManager`; only the projects were renamed.
 
 For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
 

@@ -40,7 +40,7 @@ dnm
 
 ```bash
 # Requires the .NET 10 SDK (Fedora: sudo dnf install dotnet-sdk-10.0)
-dotnet run --project "DotNet Download Manager.csproj"
+dotnet run --project src/Sleipnir.App/Sleipnir.App.csproj
 ```
 
 **Paste a URL and press Enter.** That's it. Files are saved to `~/Downloads`.

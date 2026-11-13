@@ -13,14 +13,14 @@
 ### From source
 
 ```bash
-dotnet run --project "DotNet Download Manager.csproj"
+dotnet run --project src/Sleipnir.App/Sleipnir.App.csproj
 ```
 
 ### Published build
 
 ```bash
-dotnet publish "DotNet Download Manager.csproj" -c Release -o out
-dotnet "out/Sleipnir.dll"
+dotnet publish src/Sleipnir.App/Sleipnir.App.csproj -c Release -o out
+dotnet "out/dnm.dll"
 ```
 
 ### Podman / Docker

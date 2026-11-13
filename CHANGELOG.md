@@ -2,12 +2,17 @@
 
 ## Unreleased
 
+### Internal: library split (Phase 2, step 1)
+
+- Code split into `Sleipnir.Core`, `Sleipnir.Engine` and the `dnm` app under `src/`; the solution is
+  now `Sleipnir.sln`. No behaviour change.
+
 ### Changed: new name
 
 - **Renamed to Sleipnir**, Odin's eight-legged horse: eight legs, eight connections. The GitHub
   repository is now `Parth2500/Sleipnir`; old links redirect. The UI and docs use the new name. The
   `dnm` command, the `.dnm` temp files and the data folders keep their names for now, and code
-  namespaces move to `Sleipnir.*` during the Phase 2 restructure.
+  namespaces still start with `DotNetDownloadManager` (projects are renamed; namespaces follow later).
 
 ### Added: new interface
 

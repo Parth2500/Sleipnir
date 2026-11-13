@@ -13,33 +13,33 @@
 
 ```mermaid
 flowchart TD
-    Program["Program.cs<br/>(render loop, signals)"] --> TC["UI/TuiController<br/>(state + keys)"]
-    Program --> TR["UI/TuiRenderer<br/>(state → screen)"]
-    TC --> LE["UI/LineEditor<br/>UI/SlashCommands"]
+    Program["App/Program.cs<br/>(render loop, signals)"] --> TC["App/UI/TuiController<br/>(state + keys)"]
+    Program --> TR["App/UI/TuiRenderer<br/>(state → screen)"]
+    TC --> LE["App/UI/LineEditor<br/>App/UI/SlashCommands"]
     TR --> TC
-    TR --> SPD["UI/SpeedTracker"]
+    TR --> SPD["App/UI/SpeedTracker"]
     TC --> IDS["IDownloadService"]
-    IDS -.implemented by.-> DS["Services/DownloadService<br/>(queue, runs, retry policy, persistence)"]
-    DS --> SD["Services/SegmentDownloader"]
-    DS --> FNR["Services/FileNameResolver"]
+    IDS -.implemented by.-> DS["Engine/Services/DownloadService<br/>(queue, runs, retry policy, persistence)"]
+    DS --> SD["Engine/Services/SegmentDownloader"]
+    DS --> FNR["Engine/Services/FileNameResolver"]
     DS --> INC["INetworkClient"]
     DS --> IFS["IFileStorage"]
     DS --> ISS["IDownloadStateStore"]
     SD --> INC
     SD --> IFS
-    INC -.implemented by.-> HNC["Infrastructure/Network/HttpNetworkClient<br/>+ HappyEyeballs"]
-    IFS -.implemented by.-> LFS["Infrastructure/Storage/LocalFileStorage"]
-    ISS -.implemented by.-> JSS["Infrastructure/Persistence/JsonDownloadStateStore"]
+    INC -.implemented by.-> HNC["Engine/Infrastructure/Network/HttpNetworkClient<br/>+ HappyEyeballs"]
+    IFS -.implemented by.-> LFS["Engine/Infrastructure/Storage/LocalFileStorage"]
+    ISS -.implemented by.-> JSS["Engine/Infrastructure/Persistence/JsonDownloadStateStore"]
 ```
 
-| Folder | Contents | Depends on |
+| Project / folder | Contents | Depends on |
 |--------|----------|------------|
-| `Core/Models` | `DownloadTask`, `DownloadSegment`, `DownloadStatus`, `RemoteFileInfo`, `DownloadRecord` | nothing |
-| `Core/Interfaces` | `IDownloadService`, `INetworkClient`, `IFileStorage`, `IDownloadStateStore`, `RangeNotSupportedException`, `ServerBusyException` | Models |
-| `Services` | Download orchestration, segment downloading, file naming, options | Core |
-| `Infrastructure` | `HttpClient`, file system, and JSON implementations of the interfaces | Core |
-| `UI` | Interactive state and key handling (`TuiController`, `LineEditor`, `SlashCommands`), screen rendering (`TuiRenderer`), speed measurement | Core |
-| `Program.cs` | Composition root, the keyboard/render loop, signal handling | everything |
+| `Sleipnir.Core/Models` | `DownloadTask`, `DownloadSegment`, `DownloadStatus`, `RemoteFileInfo`, `DownloadRecord` | nothing |
+| `Sleipnir.Core/Interfaces` | `IDownloadService`, `INetworkClient`, `IFileStorage`, `IDownloadStateStore`, `RangeNotSupportedException`, `ServerBusyException` | Models |
+| `Sleipnir.Engine/Services` | Download orchestration, segment downloading, file naming, options | Core |
+| `Sleipnir.Engine/Infrastructure` | `HttpClient`, file system, and JSON implementations of the interfaces | Core |
+| `Sleipnir.App/UI` | Interactive state and key handling (`TuiController`, `LineEditor`, `SlashCommands`), screen rendering (`TuiRenderer`), speed measurement | Core |
+| `Sleipnir.App/Program.cs` | Composition root, the keyboard/render loop, signal handling | everything |
 
 ## Download lifecycle
 
