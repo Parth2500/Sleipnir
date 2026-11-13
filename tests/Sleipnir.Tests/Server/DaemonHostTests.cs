@@ -127,18 +127,34 @@ public class DaemonHostTests
     }
 
     [Fact]
-    public async Task After_twenty_failed_attempts_even_the_right_token_is_refused_for_a_while()
+    public async Task After_twenty_failed_attempts_wrong_tokens_are_throttled_but_the_right_token_still_works()
     {
         await using var daemon = await DaemonFixture.StartAsync();
         for (var i = 0; i < 20; i++)
         {
-            await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, "/api/v1/me", token: "wrong"));
+            await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, "/api/v1/downloads", token: "wrong"));
         }
 
-        var response = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, "/api/v1/me"));
+        var guess = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, "/api/v1/downloads", token: "wrong"));
+        var owner = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, "/api/v1/downloads"));
 
-        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
-        Assert.Equal("too_many_attempts", (await Json(response)).GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.TooManyRequests, guess.StatusCode);
+        Assert.Equal("too_many_attempts", (await Json(guess)).GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.OK, owner.StatusCode);
+    }
+
+    [Fact]
+    public async Task Requests_without_credentials_do_not_use_up_the_failure_budget()
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+        for (var i = 0; i < 25; i++)
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, (await daemon.Http.GetAsync("/api/v1/downloads")).StatusCode);
+        }
+
+        var wrong = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, "/api/v1/downloads", token: "wrong"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
     }
 
     [Fact]

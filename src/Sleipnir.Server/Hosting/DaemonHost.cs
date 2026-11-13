@@ -35,27 +35,25 @@ public sealed class DaemonHost : IAsyncDisposable
     {
         var first = _options.Port;
         var attempts = first == 0 ? 1 : PortAttempts;
+        // Both loopback addresses share one port, so a port is only usable if both can bind. IPv6 is
+        // skipped only when the OS has none; a busy port is never papered over with a partial listener.
+        var withIPv6 = first != 0 && Socket.OSSupportsIPv6;
         Exception? last = null;
 
         for (var i = 0; i < attempts; i++)
         {
-            var port = first == 0 ? 0 : first + i;
-            // IPv6 loopback is best effort: a machine without it still gets the IPv4 listener.
-            foreach (var withIPv6 in first == 0 ? [false] : new[] { true, false })
+            var app = Build(first == 0 ? 0 : first + i, withIPv6);
+            try
             {
-                var app = Build(port, withIPv6);
-                try
-                {
-                    await app.StartAsync(ct);
-                    _app = app;
-                    Port = new Uri(app.Urls.First()).Port;
-                    return;
-                }
-                catch (Exception e) when (e is IOException or SocketException or InvalidOperationException)
-                {
-                    last = e;
-                    await app.DisposeAsync();
-                }
+                await app.StartAsync(ct);
+                _app = app;
+                Port = new Uri(app.Urls.First()).Port;
+                return;
+            }
+            catch (Exception e) when (e is IOException or SocketException or InvalidOperationException)
+            {
+                last = e;
+                await app.DisposeAsync();
             }
         }
 
@@ -91,17 +89,38 @@ public sealed class DaemonHost : IAsyncDisposable
         builder.Services.ConfigureHttpJsonOptions(json =>
         {
             json.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-            json.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+            json.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         });
 
         var app = builder.Build();
+        app.Use(ReportFailuresAsProblems);
         app.Use(RejectForeignHosts);
         app.Use(Authenticate);
 
         var api = app.MapGroup("/api/v1");
         ServerEndpoints.Map(api, () => _shutdown.TrySetResult());
+        new DownloadEndpoints(_downloads, _options.ResolvedDestination).Map(api);
         app.MapFallback("/api/{**rest}", () => Problem.Create(404, "not_found", "No such endpoint."));
         return app;
+    }
+
+    private static async Task ReportFailuresAsProblems(HttpContext context, Func<Task> next)
+    {
+        try
+        {
+            await next();
+        }
+        catch (Microsoft.AspNetCore.Http.BadHttpRequestException e) when (!context.Response.HasStarted)
+        {
+            var code = e.StatusCode == 413 ? "payload_too_large" : "invalid_request";
+            await Problem.WriteAsync(context, e.StatusCode, code, "The request could not be read.");
+        }
+        catch (Exception e) when (!context.Response.HasStarted)
+        {
+            context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger<DaemonHost>()
+                .LogError(e, "Unhandled error on {Method} {Path}", context.Request.Method, context.Request.Path);
+            await Problem.WriteAsync(context, 500, "internal_error", "Something went wrong.");
+        }
     }
 
     private static async Task RejectForeignHosts(HttpContext context, Func<Task> next)
@@ -124,21 +143,33 @@ public sealed class DaemonHost : IAsyncDisposable
             return;
         }
 
+        var presented = BearerToken(context.Request);
+        if (presented is null)
+        {
+            // No credentials (what a cross-site browser request looks like): refuse, but don't let
+            // anyone use these to exhaust the budget that protects the real owner.
+            context.Response.Headers.WWWAuthenticate = "Bearer";
+            await Problem.WriteAsync(context, 401, "unauthorized", "A valid bearer token is required.");
+            return;
+        }
+
+        // The right token always works: a 256-bit token can't be guessed, so throttling only needs to
+        // slow down wrong guesses, and must never lock the owner out.
+        if (LocalAdminToken.Matches(_options.AdminToken, presented))
+        {
+            await next();
+            return;
+        }
+
         var source = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         if (_limiter.IsBlocked(source))
         {
             await Problem.WriteAsync(context, 429, "too_many_attempts", "Too many failed attempts. Try again later.");
             return;
         }
-
-        if (!LocalAdminToken.Matches(_options.AdminToken, BearerToken(context.Request)))
-        {
-            _limiter.RecordFailure(source);
-            context.Response.Headers.WWWAuthenticate = "Bearer";
-            await Problem.WriteAsync(context, 401, "unauthorized", "A valid bearer token is required.");
-            return;
-        }
-        await next();
+        _limiter.RecordFailure(source);
+        context.Response.Headers.WWWAuthenticate = "Bearer";
+        await Problem.WriteAsync(context, 401, "unauthorized", "A valid bearer token is required.");
     }
 
     private static string? BearerToken(HttpRequest request)

@@ -42,7 +42,8 @@ public sealed class StubDownloadService : IDownloadService
     public Task RemoveDownloadAsync(Guid id)
     {
         Calls.Add($"remove {Name(id)}");
-        Tasks.RemoveAll(t => t.Id == id);
+        // Like the real engine: only finished downloads leave the list.
+        Tasks.RemoveAll(t => t.Id == id && t.Status is DownloadStatus.Completed or DownloadStatus.Cancelled);
         return Task.CompletedTask;
     }
 
