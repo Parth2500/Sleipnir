@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Sleipnir.App/Sleipnir.App.csproj" />
+    <ProjectReference Include="../../src/Sleipnir.Core/Sleipnir.Core.csproj" />
   </ItemGroup>
 
 </Project>
