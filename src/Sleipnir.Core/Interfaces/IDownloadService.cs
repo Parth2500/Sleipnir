@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Sleipnir.Core.Models;
@@ -7,7 +7,8 @@ namespace Sleipnir.Core.Interfaces;
 
 public interface IDownloadService
 {
-    Task<Guid> AddDownloadAsync(string url, string outputDirectory);
+    /// <param name="ownerId">The user the download belongs to; null means the admin.</param>
+    Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null);
     Task PauseDownloadAsync(Guid downloadId);
     Task ResumeDownloadAsync(Guid downloadId);
     Task CancelDownloadAsync(Guid downloadId);

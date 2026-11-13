@@ -5,6 +5,9 @@ public class DownloadTask
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Url { get; set; } = string.Empty;
 
+    /// <summary>The user who added the download; null for downloads that predate users (they belong to the admin).</summary>
+    public Guid? OwnerId { get; set; }
+
     /// <summary>Final path of the file. The in-progress data lives at <c>DestinationPath + ".dnm"</c>.</summary>
     public string DestinationPath { get; set; } = string.Empty;
 
