@@ -7,10 +7,28 @@ namespace Sleipnir;
 /// <summary><c>dnm daemon</c>: the download engine as a background process with a local API.</summary>
 public static class DaemonCommand
 {
+    /// <summary>Exit code for "Sleipnir could not start" (sysexits EX_IOERR); 1 means another instance is running.</summary>
+    public const int StartFailureExitCode = 74;
+
     public static async Task<int> RunAsync()
     {
+        try
+        {
+            return await RunCoreAsync();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine(InstanceMessages.CouldNotStart(e));
+            return StartFailureExitCode;
+        }
+    }
+
+    private static async Task<int> RunCoreAsync()
+    {
         var paths = AppPaths.ForCurrentUser();
-        using var instanceLock = InstanceLock.TryAcquire(paths.Runtime);
+        // The lock lives next to the data it protects, so it holds even when two processes disagree
+        // about the runtime folder (a systemd service has XDG_RUNTIME_DIR, a cron job does not).
+        using var instanceLock = InstanceLock.TryAcquire(paths.Data);
         if (instanceLock is null)
         {
             Console.Error.WriteLine(InstanceMessages.AlreadyRunning(paths.Runtime));
@@ -29,25 +47,31 @@ public static class DaemonCommand
 
         var token = LocalAdminToken.LoadOrCreate(paths.Runtime);
         var engine = EngineFactory.Create();
-        await engine.RestoreAsync();
-
         await using var host = DaemonHost.Create(new DaemonOptions(token), engine);
-        await host.StartAsync();
-        DaemonInfo.Write(paths.Runtime, new DaemonInfo(host.Port, Environment.ProcessId, Version));
-        Console.WriteLine($"Sleipnir daemon listening on http://127.0.0.1:{host.Port}");
 
+        // Listen first: if that fails nothing has been started that would need a clean shutdown.
+        await host.StartAsync();
         try
         {
-            await host.WaitForShutdownAsync(stop.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // Signalled: fall through to the same clean stop as the shutdown endpoint.
-        }
+            await engine.RestoreAsync();
+            DaemonInfo.Write(paths.Runtime, new DaemonInfo(host.Port, Environment.ProcessId, Version));
+            Console.WriteLine($"Sleipnir daemon listening on http://127.0.0.1:{host.Port}");
 
-        DaemonInfo.Delete(paths.Runtime);
-        await host.StopAsync();
-        await engine.ShutdownAsync(); // flush buffers and save progress so the next start resumes
+            try
+            {
+                await host.WaitForShutdownAsync(stop.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Signalled: fall through to the same clean stop as the shutdown endpoint.
+            }
+        }
+        finally
+        {
+            DaemonInfo.Delete(paths.Runtime);
+            await host.StopAsync();
+            await engine.ShutdownAsync(); // flush buffers and save progress so the next start resumes
+        }
         return 0;
     }
 
@@ -59,6 +83,14 @@ internal static class InstanceMessages
 {
     public static string AlreadyRunning(string runtimeDir) =>
         DaemonInfo.TryRead(runtimeDir) is { } info
-            ? $"Sleipnir daemon is running (pid {info.Pid}, port {info.Port}). Stop it first; this is already running."
+            ? $"Sleipnir is already running (pid {info.Pid}, port {info.Port})."
             : "Sleipnir is already running.";
+
+    /// <summary>What the interactive screen says: it cannot share the downloads with a running daemon yet.</summary>
+    public static string DaemonBlocksScreen(string runtimeDir) =>
+        DaemonInfo.TryRead(runtimeDir) is { } info
+            ? $"A Sleipnir daemon is running (pid {info.Pid}, port {info.Port}). Stop it first; the screen will connect to it in a later release."
+            : "Sleipnir is already running.";
+
+    public static string CouldNotStart(Exception e) => $"Sleipnir could not start: {e.Message}";
 }

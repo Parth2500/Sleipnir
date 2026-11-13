@@ -74,6 +74,7 @@ is released by the system and the next start works.
 | `$XDG_RUNTIME_DIR/dnm/daemon.json` | port, process id and version of the running daemon |
 | `$XDG_RUNTIME_DIR/dnm/admin.token` | the local admin token (readable only by you) |
 | `~/.local/share/dnm/downloads/` | saved downloads (same as before) |
+| `~/.local/share/dnm/daemon.lock` | makes sure only one Sleipnir runs per user |
 
 The API listens on `127.0.0.1` (port 7766, or the next free one: read it from `daemon.json`) and
 answers only to the host names `localhost`, `127.0.0.1` and `[::1]`. Everything except
@@ -85,6 +86,8 @@ curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
      -d '{"urls":["https://example.com/file.zip"]}' http://localhost:$PORT/api/v1/downloads
 curl -H "Authorization: Bearer $TOKEN" http://localhost:$PORT/api/v1/downloads
 ```
+
+`destination` in `POST /downloads` must be an absolute folder path (`invalid_destination` otherwise).
 
 Endpoints: `GET /server`, `POST /server/shutdown`, `GET/POST /downloads`, `GET/DELETE /downloads/{id}`,
 `POST /downloads/{id}/pause|resume|cancel`. Errors are `application/problem+json` with a stable `code`.

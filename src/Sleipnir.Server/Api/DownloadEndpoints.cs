@@ -75,6 +75,11 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
             return Problem.Create(400, "invalid_url", $"Provide 1–{MaxUrls} absolute http or https URLs.");
         }
 
+        if (parsed.Destination is { } destination && !IsValidDestination(destination))
+        {
+            return Problem.Create(400, "invalid_destination", "destination must be an absolute folder path.");
+        }
+
         var key = request.Headers["Idempotency-Key"].ToString();
         if (key.Length > MaxKeyLength) return Problem.Create(400, "invalid_request", "Idempotency-Key is too long.");
         if (key.Length == 0) return Results.Json(await AddAll(urls, parsed.Destination), statusCode: 201);
@@ -128,6 +133,12 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
             ? Results.NoContent()
             : Problem.Create(409, "download_not_finished", "Only completed or cancelled downloads can be removed.");
     }
+
+    // Blank means "use the default folder". Anything else must be absolute: a relative path would
+    // resolve against whatever directory the daemon happens to run in, and "~" is not expanded.
+    private static bool IsValidDestination(string destination) =>
+        string.IsNullOrWhiteSpace(destination)
+        || (!destination.Contains('\0') && Path.IsPathFullyQualified(destination));
 
     private static bool IsHttpUrl(string? url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";

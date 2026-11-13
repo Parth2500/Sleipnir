@@ -1,4 +1,5 @@
 using System.Net;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text.Json;
 using Sleipnir.Server.Hosting;
@@ -194,5 +195,43 @@ public class DaemonHostTests
         Assert.NotEqual(busy, daemon.Port);
         Assert.InRange(daemon.Port, busy + 1, busy + 20);
         Assert.Equal(HttpStatusCode.OK, (await daemon.Http.GetAsync("/api/v1/server")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Ambient_Kestrel_configuration_cannot_open_extra_listeners()
+    {
+        using var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        var extra = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        Environment.SetEnvironmentVariable("Kestrel__Endpoints__Extra__Url", $"http://127.0.0.1:{extra}");
+        try
+        {
+            await using var daemon = await DaemonFixture.StartAsync();
+
+            using var client = new TcpClient();
+            await Assert.ThrowsAnyAsync<SocketException>(() => client.ConnectAsync(IPAddress.Loopback, extra));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Kestrel__Endpoints__Extra__Url", null);
+        }
+    }
+
+    [Fact]
+    public async Task Stopping_does_not_wait_for_a_client_that_never_finishes_its_request()
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+        using var stuck = new TcpClient();
+        await stuck.ConnectAsync(IPAddress.Loopback, daemon.Port);
+        var head = $"POST /api/v1/downloads HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {daemon.Token}\r\n"
+                 + "Content-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"urls\":";
+        await stuck.GetStream().WriteAsync(System.Text.Encoding.ASCII.GetBytes(head));
+        await Task.Delay(300);
+
+        var clock = Stopwatch.StartNew();
+        await daemon.Host.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(6), $"stopping took {clock.Elapsed}");
     }
 }

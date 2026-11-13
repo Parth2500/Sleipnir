@@ -281,4 +281,37 @@ public class DownloadEndpointTests
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
     }
+
+    [Theory]
+    [InlineData("rel/dir")]
+    [InlineData("../up")]
+    [InlineData("~/Downloads")]
+    [InlineData("a\u0000b")]
+    public async Task Destinations_must_be_absolute_paths(string destination)
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+        var body = JsonSerializer.Serialize(new { urls = new[] { "http://example.test/a.zip" }, destination });
+
+        var response = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Post, "/api/v1/downloads", body));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid_destination", await Code(response));
+        Assert.Empty(daemon.Downloads.Calls);
+    }
+
+    [Fact]
+    public async Task Parallel_requests_with_one_idempotency_key_add_the_download_once()
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ =>
+        {
+            var request = daemon.Request(HttpMethod.Post, "/api/v1/downloads", Add("http://a.test/x.zip"));
+            request.Headers.Add("Idempotency-Key", "phone-1");
+            return daemon.Http.SendAsync(request);
+        }));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.Created, r.StatusCode));
+        Assert.Single(daemon.Downloads.Calls);
+    }
 }

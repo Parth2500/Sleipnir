@@ -38,12 +38,23 @@ if (args.Length > 0)
 
 // Only one process per user may drive the download state: the UI and the daemon share one lock.
 var paths = AppPaths.ForCurrentUser();
-using var instanceLock = InstanceLock.TryAcquire(paths.Runtime);
+InstanceLock? instanceLock;
+try
+{
+    instanceLock = InstanceLock.TryAcquire(paths.Data);
+}
+catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+{
+    Console.Error.WriteLine(InstanceMessages.CouldNotStart(e));
+    return DaemonCommand.StartFailureExitCode;
+}
 if (instanceLock is null)
 {
-    Console.Error.WriteLine(InstanceMessages.AlreadyRunning(paths.Runtime));
+    Console.Error.WriteLine(InstanceMessages.DaemonBlocksScreen(paths.Runtime));
     return 1;
 }
+using var heldLock = instanceLock;
+DaemonInfo.Delete(paths.Runtime); // we hold the lock, so any daemon.json is left over from a crashed daemon
 
 // --- Composition root ---
 var downloadService = EngineFactory.Create();

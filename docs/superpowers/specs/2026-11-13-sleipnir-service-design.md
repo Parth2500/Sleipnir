@@ -113,7 +113,7 @@ server fights the OS's battery rules.
 | macOS | launchd LaunchAgent | designed for, later [my call] |
 | Android | foreground service inside the app | later |
 
-- **Single instance per user:** an exclusive lock file in the runtime directory. A second
+- **Single instance per user:** an exclusive lock on `daemon.lock` in the **data** directory (next to the state it protects; two processes that disagree about `XDG_RUNTIME_DIR`, e.g. a systemd service and a cron job, still exclude each other [review fix 2026-11-13]). A second
   `dnm daemon` exits with a clear message.
 - **Runtime file** `daemon.json` (port, PID, version) tells local clients where to connect.
 - **Graceful shutdown** on SIGTERM/SIGINT/SIGHUP and `POST /api/v1/server/shutdown` (admin): the
@@ -125,7 +125,7 @@ server fights the OS's battery rules.
 |---|---|---|---|
 | Settings | `$XDG_CONFIG_HOME/dnm/settings.json` | `%APPDATA%\dnm\` | `~/Library/Application Support/dnm/` |
 | Data (DB, identity key) | `$XDG_DATA_HOME/dnm/` | `%LOCALAPPDATA%\dnm\` | `~/Library/Application Support/dnm/` |
-| Runtime (lock, `daemon.json`, local admin token) | `$XDG_RUNTIME_DIR/dnm/`, falling back to `$XDG_STATE_HOME/dnm/` | `%LOCALAPPDATA%\dnm\run\` | `~/Library/Application Support/dnm/run/` |
+| Runtime (`daemon.json`, local admin token; the lock is in Data) | `$XDG_RUNTIME_DIR/dnm/`, falling back to `$XDG_STATE_HOME/dnm/` | `%LOCALAPPDATA%\dnm\run\` | `~/Library/Application Support/dnm/run/` |
 
 Secret files (identity private key, local admin token) are created with permissions `0600` (Unix)
 or a user-only ACL (Windows), **atomically, before any content is written**. On client devices

@@ -35,9 +35,9 @@ public sealed class DaemonHost : IAsyncDisposable
     {
         var first = _options.Port;
         var attempts = first == 0 ? 1 : PortAttempts;
-        // Both loopback addresses share one port, so a port is only usable if both can bind. IPv6 is
-        // skipped only when the OS has none; a busy port is never papered over with a partial listener.
-        var withIPv6 = first != 0 && Socket.OSSupportsIPv6;
+        // Both loopback addresses share one port. IPv6 is used only if this machine can really bind
+        // ::1 (the OS can claim support while it is disabled by sysctl).
+        var withIPv6 = first != 0 && IPv6LoopbackUsable.Value;
         Exception? last = null;
 
         for (var i = 0; i < attempts; i++)
@@ -50,14 +50,45 @@ public sealed class DaemonHost : IAsyncDisposable
                 Port = new Uri(app.Urls.First()).Port;
                 return;
             }
-            catch (Exception e) when (e is IOException or SocketException or InvalidOperationException)
+            catch (Exception e) when (IsAddressInUse(e))
             {
-                last = e;
+                last = e; // only a busy port moves on to the next one
                 await app.DisposeAsync();
+            }
+            catch
+            {
+                await app.DisposeAsync();
+                throw;
             }
         }
 
-        throw new IOException($"Could not listen on loopback ports {first}–{first + attempts - 1}.", last);
+        throw new IOException($"Could not listen on loopback ports {first}–{first + attempts - 1}: they are all in use.", last);
+    }
+
+    private static readonly Lazy<bool> IPv6LoopbackUsable = new(() =>
+    {
+        if (!Socket.OSSupportsIPv6) return false;
+        try
+        {
+            using var probe = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+            probe.Bind(new IPEndPoint(IPAddress.IPv6Loopback, 0));
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+    });
+
+    private static bool IsAddressInUse(Exception e)
+    {
+        for (var inner = e; inner is not null; inner = inner.InnerException!)
+        {
+            if (inner is SocketException { SocketErrorCode: SocketError.AddressAlreadyInUse }) return true;
+            if (inner.GetType().Name == "AddressInUseException") return true;
+            if (inner.InnerException is null) break;
+        }
+        return false;
     }
 
     public Task WaitForShutdownAsync(CancellationToken ct = default) => _shutdown.Task.WaitAsync(ct);
@@ -68,7 +99,11 @@ public sealed class DaemonHost : IAsyncDisposable
         if (_app is { } app)
         {
             _app = null;
-            await app.StopAsync();
+            // Don't let one slow or stuck client hold up saving progress: the container runtime
+            // will SIGKILL us a few seconds after SIGTERM.
+            using var grace = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try { await app.StopAsync(grace.Token); }
+            catch (OperationCanceledException) { }
             await app.DisposeAsync();
         }
     }
@@ -77,8 +112,15 @@ public sealed class DaemonHost : IAsyncDisposable
 
     private WebApplication Build(int port, bool withIPv6)
     {
-        var builder = WebApplication.CreateSlimBuilder();
+        // An empty builder reads no appsettings.json and no environment variables, so nothing outside
+        // this process can add a listener (for example Kestrel__Endpoints__*) or widen the bind address.
+        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+        builder.Logging.AddConsole();
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Logging.AddFilter("Microsoft.Extensions.Hosting.Internal.Host", LogLevel.None); // busy-port retries are normal
+        builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(3));
+        builder.Services.AddRoutingCore();
+        builder.WebHost.UseKestrelCore();
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
             kestrel.AddServerHeader = false;
@@ -109,6 +151,10 @@ public sealed class DaemonHost : IAsyncDisposable
         try
         {
             await next();
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // The client went away or the server is stopping: nothing to report.
         }
         catch (Microsoft.AspNetCore.Http.BadHttpRequestException e) when (!context.Response.HasStarted)
         {

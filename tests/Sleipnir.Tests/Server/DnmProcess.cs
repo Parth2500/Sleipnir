@@ -13,7 +13,9 @@ public sealed class DnmHome : IDisposable
 
     public DnmHome() => Directory.CreateDirectory(Root);
 
-    public DnmProcess Start(params string[] args)
+    public DnmProcess Start(params string[] args) => StartWith(new Dictionary<string, string>(), args);
+
+    public DnmProcess StartWith(IDictionary<string, string> environment, params string[] args)
     {
         var dll = typeof(Sleipnir.UI.TuiController).Assembly.Location;
         var info = new ProcessStartInfo(Environment.ProcessPath!)
@@ -30,6 +32,7 @@ public sealed class DnmHome : IDisposable
         info.Environment["XDG_DATA_HOME"] = Path.Combine(Root, "data");
         info.Environment["XDG_CONFIG_HOME"] = Path.Combine(Root, "config");
         info.Environment["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] = "1";
+        foreach (var (key, value) in environment) info.Environment[key] = value;
         return new DnmProcess(Process.Start(info)!);
     }
 
@@ -43,6 +46,19 @@ public sealed class DnmHome : IDisposable
             await Task.Delay(50);
         }
         throw new TimeoutException("daemon.json never appeared:\n" + process.Output);
+    }
+
+    /// <summary>Waits until a process holds the instance lock (the lock file exists in the data folder).</summary>
+    public async Task WaitForLockAsync(DnmProcess process, int seconds = 20)
+    {
+        var path = Path.Combine(Root, "data", "dnm", "daemon.lock");
+        var deadline = DateTime.UtcNow.AddSeconds(seconds);
+        while (!File.Exists(path))
+        {
+            if (process.HasExited) throw new InvalidOperationException("dnm exited early:\n" + process.Output);
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("lock never appeared:\n" + process.Output);
+            await Task.Delay(50);
+        }
     }
 
     public string Token => File.ReadAllText(Path.Combine(RuntimeDir, "admin.token")).Trim();

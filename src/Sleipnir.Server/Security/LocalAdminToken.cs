@@ -16,7 +16,19 @@ public static class LocalAdminToken
             if (File.Exists(path))
             {
                 var existing = File.ReadAllText(path).Trim();
-                if (existing.Length > 0) return existing;
+                if (IsWellFormed(existing))
+                {
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        var ownerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                        if (File.GetUnixFileMode(path) != ownerOnly) File.SetUnixFileMode(path, ownerOnly);
+                    }
+                    return existing;
+                }
+
+                // Empty (a crash between create and write) or not one of ours: the caller holds the
+                // instance lock, so nobody else is using it. Replace it.
+                File.Delete(path);
             }
 
             var token = Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -31,6 +43,9 @@ public static class LocalAdminToken
             }
         }
     }
+
+    private static bool IsWellFormed(string token) =>
+        token.Length == 43 && token.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 
     public static bool Matches(string expected, string? presented)
     {

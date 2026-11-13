@@ -51,7 +51,7 @@ flowchart LR
     CLIENT["curl / future clients"] -- "HTTP 127.0.0.1, Bearer token" --> DH["Sleipnir.Server<br/>DaemonHost"]
     DH --> IDS["IDownloadService"]
     IDS -.implemented by.-> DS["Engine/DownloadService"]
-    CMD["App/DaemonCommand"] --> LOCK["InstanceLock<br/>(daemon.lock)"]
+    CMD["App/DaemonCommand"] --> LOCK["InstanceLock<br/>(daemon.lock in the data folder)"]
     CMD --> DH
     CMD --> INFO["DaemonInfo<br/>(daemon.json)"]
 ```
@@ -59,11 +59,16 @@ flowchart LR
 - **Request pipeline:** problem+json error mapping → `Host` allowlist (`localhost`, `127.0.0.1`, `[::1]`)
   → bearer-token check (the right token always passes; wrong guesses are throttled; requests without
   credentials are refused without counting) → endpoints. No CORS headers are ever sent.
-- **One engine per user:** `InstanceLock` is an exclusive open file handle in the runtime directory,
+- **One engine per user:** `InstanceLock` is an exclusive open file handle (`daemon.lock`) in the data directory, beside the state it protects,
   taken by both `dnm daemon` and the interactive screen, so two processes never write the same state.
   The operating system releases it if the process dies.
-- **Ports:** `127.0.0.1` and `[::1]` (when the OS has IPv6) share one port, starting at 7766 and moving
-  up to 20 ports if busy. Clients must read the real port from `daemon.json`.
+- **No ambient configuration:** the host is built from an empty builder, so `appsettings.json` and `Kestrel__*`
+  environment variables cannot add a listener or widen the bind address.
+- **Ports:** `127.0.0.1` and `[::1]` (only if it can really be bound) share one port, starting at 7766 and moving
+  up to 20 ports if busy; any other bind failure is an error, not a reason to try the next port. Clients must read the real port from `daemon.json`.
+- **Start-up failures** are one line (`Sleipnir could not start: …`) with exit code 74; exit code 1 means
+  "already running". The systemd unit sets `RestartPreventExitStatus=1` so it doesn't restart-loop while the
+  screen is open. The HTTP stop is bounded to 3 s so progress is saved before a container runtime's SIGKILL.
 - **Shutdown:** `POST /api/v1/server/shutdown`, SIGTERM, SIGINT or SIGHUP stop the host, then call
   `ShutdownAsync` so progress is saved and downloads resume on the next start.
 

@@ -68,4 +68,42 @@ public class SecretTests : IDisposable
     {
         Assert.True(LocalAdminToken.Matches("abc", "abc"));
     }
+
+    [Fact]
+    public void An_empty_token_file_left_by_a_crash_is_replaced()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "admin.token"), "");
+
+        var token = LocalAdminToken.LoadOrCreate(_dir);
+
+        Assert.Matches("^[A-Za-z0-9_-]{43}$", token);
+        Assert.Equal(token, File.ReadAllText(Path.Combine(_dir, "admin.token")).Trim());
+    }
+
+    [Fact]
+    public void A_token_file_of_the_wrong_shape_is_not_trusted()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "admin.token"), "abc");
+
+        var token = LocalAdminToken.LoadOrCreate(_dir);
+
+        Assert.NotEqual("abc", token);
+        Assert.Equal(43, token.Length);
+    }
+
+    [Fact]
+    public void A_good_token_with_loose_permissions_is_kept_and_locked_down()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var path = Path.Combine(_dir, "admin.token");
+        var original = LocalAdminToken.LoadOrCreate(_dir);
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+
+        var loaded = LocalAdminToken.LoadOrCreate(_dir);
+
+        Assert.Equal(original, loaded);
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+    }
 }

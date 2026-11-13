@@ -12,6 +12,10 @@
   is in `admin.token`, readable only by you), `Host` allowlist against DNS rebinding, no CORS, wrong
   guesses throttled, errors as `application/problem+json` with stable codes.
 - **`dnm service install | uninstall | status`** manages a systemd user service (Linux).
+- Hardened after an independent review: the container image uses the ASP.NET runtime; the API can't be
+  widened by `appsettings.json` or `Kestrel__*` variables; machines with IPv6 disabled work; the one-instance
+  lock lives in the data folder; start-up errors are one clear line (exit code 74); `destination` must be
+  absolute; stopping takes at most about 3 s; the token file is validated and kept private.
 - Plain `dnm` now refuses to start while the daemon runs (and vice versa) so two processes never
   share the download state; unknown arguments print usage and exit with code 2.
 

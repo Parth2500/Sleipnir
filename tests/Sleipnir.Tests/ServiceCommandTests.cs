@@ -32,7 +32,7 @@ public class ServiceCommandTests : IDisposable
     [Fact]
     public void The_unit_runs_the_daemon_and_restarts_it_on_failure()
     {
-        const string expected = "[Unit]\nDescription=Sleipnir download manager\n\n[Service]\nExecStart=\"/opt/dnm\" daemon\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n";
+        const string expected = "[Unit]\nDescription=Sleipnir download manager\n\n[Service]\nExecStart=\"/opt/dnm\" daemon\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=1\n\n[Install]\nWantedBy=default.target\n";
 
         Assert.Equal(expected, SystemdUnit.Render("/opt/dnm"));
     }

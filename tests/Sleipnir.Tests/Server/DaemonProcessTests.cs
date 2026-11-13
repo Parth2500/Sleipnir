@@ -68,7 +68,7 @@ public class DaemonProcessTests
         if (!OperatingSystem.IsLinux()) return;
         using var home = new DnmHome();
         using var tui = home.Start();
-        await Task.Delay(TimeSpan.FromSeconds(3)); // the TUI takes the lock before drawing anything
+        await home.WaitForLockAsync(tui);
 
         using var daemon = home.Start("daemon");
 
@@ -142,5 +142,66 @@ public class DaemonProcessTests
         Assert.Equal(1, await process.WaitForExitAsync());
         Assert.Contains("published dnm", process.Output);
         Assert.False(Directory.Exists(Path.Combine(home.Root, "config", "systemd")));
+    }
+
+    [Fact]
+    public async Task The_lock_protects_the_data_folder_whatever_the_runtime_folder_is()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var home = new DnmHome();
+        using var first = home.Start("daemon");
+        await home.WaitForDaemonAsync(first);
+
+        using var second = home.StartWith(new Dictionary<string, string> { ["XDG_RUNTIME_DIR"] = Path.Combine(home.Root, "other-run") }, "daemon");
+
+        Assert.Equal(1, await second.WaitForExitAsync());
+        Assert.Contains("already running", second.Output);
+    }
+
+    [Fact]
+    public async Task An_empty_token_file_does_not_stop_the_daemon_from_starting()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var home = new DnmHome();
+        Directory.CreateDirectory(home.RuntimeDir);
+        File.WriteAllText(Path.Combine(home.RuntimeDir, "admin.token"), "");
+        using var daemon = home.Start("daemon");
+
+        var info = await home.WaitForDaemonAsync(daemon);
+
+        using var admin = ClientFor(info.Port, home.Token);
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync("/api/v1/downloads")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_start_up_failure_is_one_clear_line_and_exit_code_74_not_a_crash()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var home = new DnmHome();
+        var blocker = Path.Combine(home.Root, "blocker");
+        File.WriteAllText(blocker, "i am a file");
+        using var daemon = home.StartWith(new Dictionary<string, string> { ["XDG_RUNTIME_DIR"] = blocker }, "daemon");
+
+        Assert.Equal(74, await daemon.WaitForExitAsync());
+        Assert.Contains("Sleipnir could not start", daemon.Output);
+        Assert.DoesNotContain("Unhandled exception", daemon.Output);
+    }
+
+    [Fact]
+    public async Task The_TUI_clears_a_stale_daemon_json_left_by_a_crashed_daemon()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var home = new DnmHome();
+        using var crashed = home.Start("daemon");
+        await home.WaitForDaemonAsync(crashed);
+        crashed.Signal(SIGKILL);
+        await crashed.WaitForExitAsync(10);
+        Assert.True(File.Exists(Path.Combine(home.RuntimeDir, "daemon.json")));
+
+        using var tui = home.Start();
+        await home.WaitForLockAsync(tui);
+        await Task.Delay(500);
+
+        Assert.False(File.Exists(Path.Combine(home.RuntimeDir, "daemon.json")));
     }
 }
