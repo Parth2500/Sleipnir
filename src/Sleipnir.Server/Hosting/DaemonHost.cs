@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Sleipnir.Core.Interfaces;
+using Sleipnir.Server.Identity;
 using Sleipnir.Server.Api;
 using Sleipnir.Server.Security;
 
@@ -17,19 +18,22 @@ public sealed class DaemonHost : IAsyncDisposable
 
     private readonly DaemonOptions _options;
     private readonly IDownloadService _downloads;
+    private readonly IdentityService _identity;
     private readonly AuthFailureLimiter _limiter = new();
     private readonly TaskCompletionSource _shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private WebApplication? _app;
 
-    private DaemonHost(DaemonOptions options, IDownloadService downloads)
+    private DaemonHost(DaemonOptions options, IDownloadService downloads, IdentityService identity)
     {
         _options = options;
         _downloads = downloads;
+        _identity = identity;
     }
 
     public int Port { get; private set; }
 
-    public static DaemonHost Create(DaemonOptions options, IDownloadService downloads) => new(options, downloads);
+    public static DaemonHost Create(DaemonOptions options, IDownloadService downloads, IdentityService identity) =>
+        new(options, downloads, identity);
 
     public async Task StartAsync(CancellationToken ct = default)
     {
@@ -141,6 +145,7 @@ public sealed class DaemonHost : IAsyncDisposable
 
         var api = app.MapGroup("/api/v1");
         ServerEndpoints.Map(api, () => _shutdown.TrySetResult());
+        MeEndpoints.Map(api);
         new DownloadEndpoints(_downloads, _options.ResolvedDestination).Map(api);
         app.MapFallback("/api/{**rest}", () => Problem.Create(404, "not_found", "No such endpoint."));
         return app;
@@ -199,10 +204,11 @@ public sealed class DaemonHost : IAsyncDisposable
             return;
         }
 
-        // The right token always works: a 256-bit token can't be guessed, so throttling only needs to
-        // slow down wrong guesses, and must never lock the owner out.
-        if (LocalAdminToken.Matches(_options.AdminToken, presented))
+        // A known, unrevoked device token always works: a 256-bit token can't be guessed, so throttling
+        // only needs to slow down wrong guesses, and must never lock the owner out.
+        if (await _identity.AuthenticateAsync(presented) is { } principal)
         {
+            context.SetPrincipal(principal);
             await next();
             return;
         }
