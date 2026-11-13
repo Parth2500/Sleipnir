@@ -1,7 +1,7 @@
-using DotNetDownloadManager.Core.Interfaces;
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Interfaces;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.Services;
+namespace Sleipnir.Services;
 
 /// <summary>
 /// Downloads one <see cref="DownloadSegment"/> into its slot of the temp file.

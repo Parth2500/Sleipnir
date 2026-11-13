@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotNetDownloadManager.Core.Interfaces;
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Interfaces;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.Infrastructure.Persistence;
+namespace Sleipnir.Infrastructure.Persistence;
 
 /// <summary>
 /// Stores one JSON file per download (<c>&lt;id&gt;.json</c>) in a directory.

@@ -1,9 +1,9 @@
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.Core.Interfaces;
+namespace Sleipnir.Core.Interfaces;
 
 public interface INetworkClient
 {

@@ -1,9 +1,9 @@
 using System.Reflection;
-using DotNetDownloadManager.Core.Models;
-using DotNetDownloadManager.Infrastructure.Persistence;
-using DotNetDownloadManager.Services;
+using Sleipnir.Core.Models;
+using Sleipnir.Infrastructure.Persistence;
+using Sleipnir.Services;
 
-namespace DotNetDownloadManager.Tests;
+namespace Sleipnir.Tests;
 
 /// <summary>Pins the project layering so Core and Engine stay reusable (e.g. by a future Android app).</summary>
 public class ArchitectureTests

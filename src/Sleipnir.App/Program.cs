@@ -1,10 +1,10 @@
 ﻿using System.Runtime.InteropServices;
-using DotNetDownloadManager.Core.Models;
-using DotNetDownloadManager.Infrastructure.Network;
-using DotNetDownloadManager.Infrastructure.Persistence;
-using DotNetDownloadManager.Infrastructure.Storage;
-using DotNetDownloadManager.Services;
-using DotNetDownloadManager.UI;
+using Sleipnir.Core.Models;
+using Sleipnir.Infrastructure.Network;
+using Sleipnir.Infrastructure.Persistence;
+using Sleipnir.Infrastructure.Storage;
+using Sleipnir.Services;
+using Sleipnir.UI;
 using Spectre.Console;
 
 // --- Composition root ---

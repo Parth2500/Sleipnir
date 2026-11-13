@@ -85,13 +85,12 @@ tar -czf dnm-linux-x64.tar.gz dnm-linux-x64 && sha256sum dnm-linux-x64.tar.gz > 
 │   └── Sleipnir.App/          the `dnm` executable
 │       ├── Program.cs         composition root, key/render loop, signal handling
 │       └── UI/                TuiController, TuiRenderer, LineEditor, SlashCommands, SpeedTracker, Format
-├── tests/DotNetDownloadManager.Tests/
+├── tests/Sleipnir.Tests/
 └── docs/
 ```
 
 Layering is enforced by `ArchitectureTests`: Core references only the framework, and Engine never
 references Spectre.Console or ASP.NET, so it can be reused by a future Android app.
-C# namespaces still start with `DotNetDownloadManager`; only the projects were renamed.
 
 For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
 

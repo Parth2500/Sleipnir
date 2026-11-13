@@ -1,6 +1,6 @@
 using System.Web;
 
-namespace DotNetDownloadManager.Services;
+namespace Sleipnir.Services;
 
 /// <summary>
 /// Turns a URL into a safe local file name and avoids clobbering existing files.

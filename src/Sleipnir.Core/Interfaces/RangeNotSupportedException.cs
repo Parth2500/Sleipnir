@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Core.Interfaces;
+namespace Sleipnir.Core.Interfaces;
 
 /// <summary>
 /// Thrown by <see cref="INetworkClient.GetStreamAsync"/> when a byte range was requested

@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.UI;
+namespace Sleipnir.UI;
 
 public enum SlashCommandKind { Add, Pause, Resume, Cancel, Clear, Help, Quit }
 

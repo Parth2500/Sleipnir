@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <RootNamespace>DotNetDownloadManager.Tests</RootNamespace>
+    <RootNamespace>Sleipnir.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

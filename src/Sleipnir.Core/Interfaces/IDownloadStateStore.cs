@@ -1,6 +1,6 @@
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.Core.Interfaces;
+namespace Sleipnir.Core.Interfaces;
 
 /// <summary>Persists download state so downloads survive an application restart.</summary>
 public interface IDownloadStateStore

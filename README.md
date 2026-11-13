@@ -107,7 +107,7 @@ podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
 ## Project status
 
 Early development. The core download engine is functional and covered by tests
-(`tests/DotNetDownloadManager.Tests`); the features listed under *Planned* are not.
+(`tests/Sleipnir.Tests`); the features listed under *Planned* are not.
 
 ## License
 

@@ -1,6 +1,6 @@
-using DotNetDownloadManager.Core.Interfaces;
+using Sleipnir.Core.Interfaces;
 
-namespace DotNetDownloadManager.Infrastructure.Storage;
+namespace Sleipnir.Infrastructure.Storage;
 
 public class LocalFileStorage : IFileStorage
 {

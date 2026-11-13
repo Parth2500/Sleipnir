@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace DotNetDownloadManager.UI;
+namespace Sleipnir.UI;
 
 /// <summary>
 /// A single-line text input with a cursor and the usual terminal editing keys:

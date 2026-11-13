@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Core.Interfaces;
+namespace Sleipnir.Core.Interfaces;
 
 public interface IFileStorage
 {

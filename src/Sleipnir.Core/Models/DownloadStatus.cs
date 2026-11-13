@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Core.Models;
+namespace Sleipnir.Core.Models;
 
 public enum DownloadStatus
 {

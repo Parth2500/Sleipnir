@@ -1,10 +1,10 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using System.Net.Http.Headers;
-using DotNetDownloadManager.Core.Interfaces;
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Interfaces;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.Infrastructure.Network;
+namespace Sleipnir.Infrastructure.Network;
 
 public class HttpNetworkClient : INetworkClient
 {

@@ -1,7 +1,7 @@
-using DotNetDownloadManager.Core.Interfaces;
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Interfaces;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.UI;
+namespace Sleipnir.UI;
 
 public enum ToastKind { Info, Error }
 

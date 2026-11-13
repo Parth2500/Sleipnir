@@ -1,7 +1,7 @@
-using DotNetDownloadManager.Core.Models;
-using DotNetDownloadManager.UI;
+using Sleipnir.Core.Models;
+using Sleipnir.UI;
 
-namespace DotNetDownloadManager.Tests.Tui;
+namespace Sleipnir.Tests.Tui;
 
 public class TuiControllerTests
 {

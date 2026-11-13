@@ -1,8 +1,8 @@
 ﻿using System.Collections.Concurrent;
-using DotNetDownloadManager.Core.Interfaces;
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Interfaces;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.Services;
+namespace Sleipnir.Services;
 
 /// <summary>
 /// Orchestrates downloads: queues them, probes the server, splits files into segments, runs segments in

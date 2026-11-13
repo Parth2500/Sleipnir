@@ -1,8 +1,8 @@
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Models;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
-namespace DotNetDownloadManager.UI;
+namespace Sleipnir.UI;
 
 /// <summary>
 /// Builds the whole screen from <see cref="TuiController"/> state. Pure: state in, renderable out.

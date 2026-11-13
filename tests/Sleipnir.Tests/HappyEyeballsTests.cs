@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Net;
-using DotNetDownloadManager.Infrastructure.Network;
+using Sleipnir.Infrastructure.Network;
 
-namespace DotNetDownloadManager.Tests;
+namespace Sleipnir.Tests;
 
 /// <summary>
 /// Happy Eyeballs (RFC 8305): race connection attempts so one unreachable address family

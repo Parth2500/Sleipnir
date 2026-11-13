@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Core.Interfaces;
+namespace Sleipnir.Core.Interfaces;
 
 /// <summary>
 /// The server asked us to slow down (HTTP 429 Too Many Requests or 503 Service Unavailable).

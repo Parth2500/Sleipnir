@@ -1,6 +1,6 @@
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.UI;
+namespace Sleipnir.UI;
 
 /// <summary>
 /// Measures transfer speed per download over a sliding time window. Call <see cref="Update"/> on

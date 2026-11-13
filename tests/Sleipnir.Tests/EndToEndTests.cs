@@ -1,11 +1,11 @@
 using System.Net;
 using System.Net.Sockets;
-using DotNetDownloadManager.Core.Models;
-using DotNetDownloadManager.Infrastructure.Network;
-using DotNetDownloadManager.Infrastructure.Storage;
-using DotNetDownloadManager.Services;
+using Sleipnir.Core.Models;
+using Sleipnir.Infrastructure.Network;
+using Sleipnir.Infrastructure.Storage;
+using Sleipnir.Services;
 
-namespace DotNetDownloadManager.Tests;
+namespace Sleipnir.Tests;
 
 /// <summary>Real HTTP over loopback: HttpNetworkClient + DownloadService + LocalFileStorage.</summary>
 public class EndToEndTests

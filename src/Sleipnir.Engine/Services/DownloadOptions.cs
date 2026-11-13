@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Services;
+namespace Sleipnir.Services;
 
 /// <summary>
 /// Tunables for <see cref="DownloadService"/>.

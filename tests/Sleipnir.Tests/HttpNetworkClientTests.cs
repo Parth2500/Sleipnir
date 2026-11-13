@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
-using DotNetDownloadManager.Core.Interfaces;
-using DotNetDownloadManager.Infrastructure.Network;
+using Sleipnir.Core.Interfaces;
+using Sleipnir.Infrastructure.Network;
 
-namespace DotNetDownloadManager.Tests;
+namespace Sleipnir.Tests;
 
 public class HttpNetworkClientTests
 {

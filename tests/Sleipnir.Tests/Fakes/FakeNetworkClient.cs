@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
-using DotNetDownloadManager.Core.Interfaces;
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Interfaces;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.Tests.Fakes;
+namespace Sleipnir.Tests.Fakes;
 
 /// <summary>
 /// In-memory "server" that serves a byte array. Behaviour can be customised per request

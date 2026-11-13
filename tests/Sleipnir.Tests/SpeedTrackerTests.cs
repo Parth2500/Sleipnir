@@ -1,7 +1,7 @@
-using DotNetDownloadManager.Core.Models;
-using DotNetDownloadManager.UI;
+using Sleipnir.Core.Models;
+using Sleipnir.UI;
 
-namespace DotNetDownloadManager.Tests;
+namespace Sleipnir.Tests;
 
 public class SpeedTrackerTests
 {

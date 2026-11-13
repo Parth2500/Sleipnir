@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Tests.Tui;
+namespace Sleipnir.Tests.Tui;
 
 /// <summary>Builds <see cref="ConsoleKeyInfo"/> values the way a terminal delivers them.</summary>
 public static class Keys

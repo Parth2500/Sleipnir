@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>dnm</AssemblyName>
     <!-- Namespaces keep their historical root; renaming them is a separate change. -->
-    <RootNamespace>DotNetDownloadManager</RootNamespace>
+    <RootNamespace>Sleipnir</RootNamespace>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerfileContext>..\..</DockerfileContext>
   </PropertyGroup>

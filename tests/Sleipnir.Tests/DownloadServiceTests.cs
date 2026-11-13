@@ -1,10 +1,10 @@
 using System.Net;
-using DotNetDownloadManager.Core.Models;
-using DotNetDownloadManager.Infrastructure.Storage;
-using DotNetDownloadManager.Services;
-using DotNetDownloadManager.Tests.Fakes;
+using Sleipnir.Core.Models;
+using Sleipnir.Infrastructure.Storage;
+using Sleipnir.Services;
+using Sleipnir.Tests.Fakes;
 
-namespace DotNetDownloadManager.Tests;
+namespace Sleipnir.Tests;
 
 public class DownloadServiceTests
 {

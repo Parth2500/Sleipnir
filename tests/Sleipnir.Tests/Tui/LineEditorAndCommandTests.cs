@@ -1,6 +1,6 @@
-using DotNetDownloadManager.UI;
+using Sleipnir.UI;
 
-namespace DotNetDownloadManager.Tests.Tui;
+namespace Sleipnir.Tests.Tui;
 
 public class LineEditorTests
 {

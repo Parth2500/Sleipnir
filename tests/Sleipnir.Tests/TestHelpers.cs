@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Tests;
+namespace Sleipnir.Tests;
 
 public static class TestHelpers
 {

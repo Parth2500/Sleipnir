@@ -11,8 +11,8 @@
 
 - **Renamed to Sleipnir**, Odin's eight-legged horse: eight legs, eight connections. The GitHub
   repository is now `Parth2500/Sleipnir`; old links redirect. The UI and docs use the new name. The
-  `dnm` command, the `.dnm` temp files and the data folders keep their names for now, and code
-  namespaces still start with `DotNetDownloadManager` (projects are renamed; namespaces follow later).
+  `dnm` command, the `.dnm` temp files and the data folders keep their names for now. Code
+  namespaces, projects and the test project are all `Sleipnir.*` now.
 
 ### Added: new interface
 

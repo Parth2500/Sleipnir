@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Core.Models;
+namespace Sleipnir.Core.Models;
 
 /// <summary>
 /// What the server told us about a remote file before downloading it.

@@ -1,7 +1,7 @@
-using DotNetDownloadManager.Core.Interfaces;
-using DotNetDownloadManager.Core.Models;
+using Sleipnir.Core.Interfaces;
+using Sleipnir.Core.Models;
 
-namespace DotNetDownloadManager.Tests.Tui;
+namespace Sleipnir.Tests.Tui;
 
 /// <summary>An in-memory IDownloadService that records what the UI asked for.</summary>
 public sealed class StubDownloadService : IDownloadService

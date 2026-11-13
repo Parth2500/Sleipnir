@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Core.Models;
+namespace Sleipnir.Core.Models;
 
 /// <summary>
 /// Saved state of a download, used to resume it after the application restarts.

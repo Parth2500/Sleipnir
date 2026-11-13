@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.UI;
+namespace Sleipnir.UI;
 
 /// <summary>Human-friendly formatting shared by the UI.</summary>
 public static class Format

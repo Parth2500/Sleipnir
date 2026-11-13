@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace DotNetDownloadManager.Infrastructure.Network;
+namespace Sleipnir.Infrastructure.Network;
 
 /// <summary>
 /// Happy Eyeballs (RFC 8305, simplified): connection attempts to a host's addresses are raced, with a

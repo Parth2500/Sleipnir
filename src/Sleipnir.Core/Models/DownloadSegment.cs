@@ -1,4 +1,4 @@
-namespace DotNetDownloadManager.Core.Models;
+namespace Sleipnir.Core.Models;
 
 /// <summary>
 /// A contiguous byte range of a download, fetched by its own HTTP request.
