@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Sleipnir;
 using Sleipnir.Core.Models;
 using Sleipnir.Server.Hosting;
+using Sleipnir.Service;
 using Sleipnir.UI;
 using Spectre.Console;
 
@@ -9,9 +10,29 @@ using Spectre.Console;
 if (args.Length > 0)
 {
     if (args[0] == "daemon") return await DaemonCommand.RunAsync();
+    if (args[0] == "service")
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Console.Error.WriteLine("Service install is only available on Linux for now.");
+            return 1;
+        }
+        if (Path.GetFileNameWithoutExtension(Environment.ProcessPath) == "dotnet")
+        {
+            // Started as `dotnet dnm.dll`: the unit would run "dotnet daemon", which doesn't exist.
+            Console.Error.WriteLine("Run the published dnm executable to install the service (see the Development Guide).");
+            return 1;
+        }
+        var configHome = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME") is { Length: > 0 } xdg
+            ? xdg
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
+        return await new ServiceCommand(new ProcessCommandRunner(), configHome, Environment.ProcessPath!, Console.Out)
+            .RunAsync(args[1..]);
+    }
 
     Console.Error.WriteLine("Usage: dnm            start the interactive UI");
     Console.Error.WriteLine("       dnm daemon     run the download engine as a background service");
+    Console.Error.WriteLine("       dnm service install | uninstall | status   manage the systemd user service");
     return 2;
 }
 

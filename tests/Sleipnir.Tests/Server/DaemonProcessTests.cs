@@ -131,4 +131,16 @@ public class DaemonProcessTests
         Assert.Equal(2, await process.WaitForExitAsync());
         Assert.Contains("daemon", process.Output);
     }
+
+    [Fact]
+    public async Task Installing_the_service_from_the_dotnet_host_is_refused_so_no_broken_unit_is_written()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var home = new DnmHome();
+        using var process = home.Start("service", "install");
+
+        Assert.Equal(1, await process.WaitForExitAsync());
+        Assert.Contains("published dnm", process.Output);
+        Assert.False(Directory.Exists(Path.Combine(home.Root, "config", "systemd")));
+    }
 }
