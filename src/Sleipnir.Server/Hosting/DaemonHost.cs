@@ -146,6 +146,7 @@ public sealed class DaemonHost : IAsyncDisposable
         var api = app.MapGroup("/api/v1");
         ServerEndpoints.Map(api, () => _shutdown.TrySetResult());
         MeEndpoints.Map(api);
+        new UserEndpoints(_identity, _downloads).Map(api);
         new DownloadEndpoints(_downloads, _options.ResolvedDestination).Map(api);
         app.MapFallback("/api/{**rest}", () => Problem.Create(404, "not_found", "No such endpoint."));
         return app;
