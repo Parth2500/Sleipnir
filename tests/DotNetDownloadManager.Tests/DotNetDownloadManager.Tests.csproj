@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../DotNet Download Manager.csproj" />
+    <ProjectReference Include="../../src/Sleipnir.App/Sleipnir.App.csproj" />
   </ItemGroup>
 
 </Project>
