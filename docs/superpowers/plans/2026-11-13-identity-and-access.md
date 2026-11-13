@@ -1,5 +1,7 @@
 # Identity and Access Implementation Plan (Phase 2, step 3a)
 
+> **Superseded in part, 2026-11-14.** Users, roles, devices and tokens now belong to Bifröst (suite decisions S4 and S6). What this plan built is extracted into Bifröst, not extended here. See the spec's revision note and its §15.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the single admin token with users, roles and per-device tokens stored in SQLite, and make every download endpoint obey the spec's authorization rules (own downloads only for members, per-user folders).
