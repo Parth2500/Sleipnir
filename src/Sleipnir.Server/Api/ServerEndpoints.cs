@@ -21,8 +21,17 @@ internal static class ServerEndpoints
 
 internal static class RequireAdmin
 {
-    public static async ValueTask<object?> Filter(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
-        context.HttpContext.Caller().IsAdmin
-            ? await next(context)
-            : Problem.Create(403, "forbidden", "Only an admin can do that.");
+    public static async ValueTask<object?> Filter(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        var caller = context.HttpContext.Caller();
+        if (caller.ViewOnly) return ViewOnly.Refusal();
+        return caller.IsAdmin ? await next(context) : Problem.Create(403, "forbidden", "Only an admin can do that.");
+    }
+}
+
+internal static class ViewOnly
+{
+    /// <summary>A <c>browser-fallback</c> device may look, never change (Bifröst design §7.3).</summary>
+    public static IResult Refusal() =>
+        Problem.Create(403, "view_only", "This device can only view. Use the Bifröst app to make changes.");
 }

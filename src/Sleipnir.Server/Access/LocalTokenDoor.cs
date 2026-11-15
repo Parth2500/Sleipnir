@@ -29,6 +29,8 @@ public sealed class LocalTokenDoor(string token) : IFrontDoor
         if (port != 0 && IPv6LoopbackUsable.Value) kestrel.Listen(IPAddress.IPv6Loopback, port);
     }
 
+    public void OnListening() { }
+
     public IResult? Admit(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);

@@ -8,9 +8,12 @@ namespace Sleipnir;
 /// <summary>Builds the download engine exactly one way, for the TUI and the daemon alike.</summary>
 public static class EngineFactory
 {
-    public static DownloadService Create() => new(
+    public static DownloadService Create() => Create(JsonDownloadStateStore.DefaultDirectory());
+
+    /// <summary>The engine with its download records in <paramref name="stateDirectory"/> (under Bifröst, the extension's data folder).</summary>
+    public static DownloadService Create(string stateDirectory) => new(
         new HttpNetworkClient(),
         new LocalFileStorage(),
         new DownloadOptions(),
-        new JsonDownloadStateStore(JsonDownloadStateStore.DefaultDirectory()));
+        new JsonDownloadStateStore(stateDirectory));
 }

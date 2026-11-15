@@ -42,6 +42,7 @@ public sealed class DaemonHost : IAsyncDisposable
             {
                 await app.StartAsync(ct);
                 _app = app;
+                _door.OnListening();
                 if (_door.UsesPorts) Port = new Uri(app.Urls.First()).Port;
                 return;
             }
@@ -120,7 +121,7 @@ public sealed class DaemonHost : IAsyncDisposable
 
         var api = app.MapGroup("/api/v1");
         ServerEndpoints.Map(api, _door.Mode, () => _shutdown.TrySetResult());
-        new DownloadEndpoints(_downloads, _options.ResolvedDestination).Map(api);
+        new DownloadEndpoints(_downloads, _options.ResolvedDestination, _options.PerPersonRoot).Map(api);
         app.MapFallback("/api/{**rest}", () => Problem.Create(404, "not_found", "No such endpoint."));
         return app;
     }

@@ -17,6 +17,9 @@ public interface IFrontDoor
 
     void Listen(KestrelServerOptions kestrel, int port);
 
+    /// <summary>Called once the listener is bound, before any request is served.</summary>
+    void OnListening();
+
     /// <summary>Checks every request, public ones included. A refusal is returned, never written.</summary>
     IResult? Admit(HttpContext context);
 

@@ -10,6 +10,7 @@ using Spectre.Console;
 if (args.Length > 0)
 {
     if (args[0] == "daemon") return await DaemonCommand.RunAsync();
+    if (args[0] == "extension") return await ExtensionCommand.RunAsync(); // started by Bifröst, not typed
     if (args[0] == "service")
     {
         if (!OperatingSystem.IsLinux())

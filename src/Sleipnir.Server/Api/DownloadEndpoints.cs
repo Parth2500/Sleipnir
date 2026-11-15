@@ -7,7 +7,7 @@ using Sleipnir.Server.Access;
 
 namespace Sleipnir.Server.Api;
 
-internal sealed class DownloadEndpoints(IDownloadService downloads, string defaultDestination)
+internal sealed class DownloadEndpoints(IDownloadService downloads, string defaultDestination, string? perPersonRoot)
 {
     private const int DefaultLimit = 50, MaxLimit = 200, MaxUrls = 100, MaxKeyLength = 200;
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
@@ -75,6 +75,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
     {
         var request = context.Request;
         var me = context.Caller();
+        if (me.ViewOnly) return ViewOnly.Refusal();
         string body;
         using (var reader = new StreamReader(request.Body, Encoding.UTF8))
         {
@@ -96,7 +97,20 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
         {
             return Problem.Create(400, "invalid_destination", "destination must be an absolute folder path.");
         }
-        var folder = string.IsNullOrWhiteSpace(parsed.Destination) ? defaultDestination : parsed.Destination;
+        string folder;
+        if (perPersonRoot is not null)
+        {
+            // Under Bifröst, Sleipnir never takes a path from a client (spec §7.3).
+            if (!string.IsNullOrWhiteSpace(parsed.Destination))
+            {
+                return Problem.Create(400, "destination_not_allowed", "Bifröst decides where downloads go. Leave destination out.");
+            }
+            folder = Path.Combine(perPersonRoot, me.PersonId!.Value.ToString());
+        }
+        else
+        {
+            folder = string.IsNullOrWhiteSpace(parsed.Destination) ? defaultDestination : parsed.Destination;
+        }
 
         var key = request.Headers["Idempotency-Key"].ToString();
         if (key.Length > MaxKeyLength) return Problem.Create(400, "invalid_request", "Idempotency-Key is too long.");
@@ -139,6 +153,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
     private async Task<IResult> Control(HttpContext context, Guid id, Func<Guid, Task> action)
     {
         if (Visible(context, id) is null) return NotFound();
+        if (context.Caller().ViewOnly) return ViewOnly.Refusal();
         await action(id);
         return downloads.GetDownload(id) is { } task ? Results.Ok(DownloadDto.From(task)) : NotFound();
     }
@@ -146,6 +161,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
     private async Task<IResult> Remove(HttpContext context, Guid id)
     {
         if (Visible(context, id) is null) return NotFound();
+        if (context.Caller().ViewOnly) return ViewOnly.Refusal();
         await downloads.RemoveDownloadAsync(id);
         return downloads.GetDownload(id) is null
             ? Results.NoContent()
