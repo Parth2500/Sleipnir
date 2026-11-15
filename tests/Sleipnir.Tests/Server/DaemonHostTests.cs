@@ -23,7 +23,7 @@ public class DaemonHostTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("Sleipnir", json.GetProperty("name").GetString());
         Assert.Equal(new[] { "v1" }, json.GetProperty("apiVersions").EnumerateArray().Select(e => e.GetString()));
-        Assert.Equal(new[] { "apiVersions", "name", "version" }, json.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal(new[] { "apiVersions", "mode", "name", "version" }, json.EnumerateObject().Select(p => p.Name).Order());
     }
 
     [Fact]
@@ -233,5 +233,44 @@ public class DaemonHostTests
         await daemon.Host.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(6), $"stopping took {clock.Elapsed}");
+    }
+
+    [Fact]
+    public async Task Server_info_says_the_mode_is_alone()
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+
+        var json = await Json(await daemon.Http.GetAsync("/api/v1/server"));
+
+        Assert.Equal("alone", json.GetProperty("mode").GetString());
+    }
+
+    [Fact]
+    public async Task Alone_the_local_token_may_see_and_control_every_download()
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+        var owned = daemon.Downloads.Seed("owned.zip", Sleipnir.Core.Models.DownloadStatus.Paused);
+        owned.OwnerId = Guid.NewGuid(); // made under Bifröst, then run alone on the same data
+        daemon.Downloads.Seed("mine.zip", Sleipnir.Core.Models.DownloadStatus.Paused);
+
+        var list = await Json(await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, "/api/v1/downloads")));
+        var resume = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Post, $"/api/v1/downloads/{owned.Id}/resume"));
+
+        Assert.Equal(2, list.GetProperty("items").GetArrayLength());
+        Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/v1/users")]
+    [InlineData("/api/v1/me")]
+    [InlineData("/api/v1/devices")]
+    public async Task Users_me_and_devices_are_gone(string path)
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+
+        var response = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, path));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("not_found", (await Json(response)).GetProperty("code").GetString());
     }
 }

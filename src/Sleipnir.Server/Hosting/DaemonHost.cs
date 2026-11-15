@@ -1,57 +1,48 @@
-using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Sleipnir.Core.Interfaces;
-using Sleipnir.Server.Identity;
+using Sleipnir.Server.Access;
 using Sleipnir.Server.Api;
-using Sleipnir.Server.Security;
 
 namespace Sleipnir.Server.Hosting;
 
-/// <summary>The local REST API around a download service: loopback only, bearer-token protected.</summary>
+/// <summary>The REST API around a download service, behind one front door (spec §6): alone or under Bifröst.</summary>
 public sealed class DaemonHost : IAsyncDisposable
 {
     private const int PortAttempts = 20;
-    private static readonly string[] AllowedHosts = ["localhost", "127.0.0.1", "[::1]"];
-
     private readonly DaemonOptions _options;
     private readonly IDownloadService _downloads;
-    private readonly IdentityService _identity;
-    private readonly AuthFailureLimiter _limiter = new();
+    private readonly IFrontDoor _door;
     private readonly TaskCompletionSource _shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private WebApplication? _app;
 
-    private DaemonHost(DaemonOptions options, IDownloadService downloads, IdentityService identity)
+    private DaemonHost(DaemonOptions options, IDownloadService downloads, IFrontDoor door)
     {
         _options = options;
         _downloads = downloads;
-        _identity = identity;
+        _door = door;
     }
 
     public int Port { get; private set; }
 
-    public static DaemonHost Create(DaemonOptions options, IDownloadService downloads, IdentityService identity) =>
-        new(options, downloads, identity);
+    public static DaemonHost Create(DaemonOptions options, IDownloadService downloads, IFrontDoor door) =>
+        new(options, downloads, door);
 
     public async Task StartAsync(CancellationToken ct = default)
     {
         var first = _options.Port;
-        var attempts = first == 0 ? 1 : PortAttempts;
-        // Both loopback addresses share one port. IPv6 is used only if this machine can really bind
-        // ::1 (the OS can claim support while it is disabled by sysctl).
-        var withIPv6 = first != 0 && IPv6LoopbackUsable.Value;
+        var attempts = !_door.UsesPorts || first == 0 ? 1 : PortAttempts;
         Exception? last = null;
 
         for (var i = 0; i < attempts; i++)
         {
-            var app = Build(first == 0 ? 0 : first + i, withIPv6);
+            var app = Build(first == 0 ? 0 : first + i);
             try
             {
                 await app.StartAsync(ct);
                 _app = app;
-                Port = new Uri(app.Urls.First()).Port;
+                if (_door.UsesPorts) Port = new Uri(app.Urls.First()).Port;
                 return;
             }
             catch (Exception e) when (IsAddressInUse(e))
@@ -68,21 +59,6 @@ public sealed class DaemonHost : IAsyncDisposable
 
         throw new IOException($"Could not listen on loopback ports {first}–{first + attempts - 1}: they are all in use.", last);
     }
-
-    private static readonly Lazy<bool> IPv6LoopbackUsable = new(() =>
-    {
-        if (!Socket.OSSupportsIPv6) return false;
-        try
-        {
-            using var probe = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
-            probe.Bind(new IPEndPoint(IPAddress.IPv6Loopback, 0));
-            return true;
-        }
-        catch (SocketException)
-        {
-            return false;
-        }
-    });
 
     private static bool IsAddressInUse(Exception e)
     {
@@ -114,7 +90,7 @@ public sealed class DaemonHost : IAsyncDisposable
 
     public ValueTask DisposeAsync() => new(StopAsync());
 
-    private WebApplication Build(int port, bool withIPv6)
+    private WebApplication Build(int port)
     {
         // An empty builder reads no appsettings.json and no environment variables, so nothing outside
         // this process can add a listener (for example Kestrel__Endpoints__*) or widen the bind address.
@@ -129,8 +105,7 @@ public sealed class DaemonHost : IAsyncDisposable
         {
             kestrel.AddServerHeader = false;
             kestrel.Limits.MaxRequestBodySize = 1024 * 1024;
-            kestrel.Listen(IPAddress.Loopback, port);
-            if (withIPv6) kestrel.Listen(IPAddress.IPv6Loopback, port);
+            _door.Listen(kestrel, port);
         });
         builder.Services.ConfigureHttpJsonOptions(json =>
         {
@@ -140,14 +115,12 @@ public sealed class DaemonHost : IAsyncDisposable
 
         var app = builder.Build();
         app.Use(ReportFailuresAsProblems);
-        app.Use(RejectForeignHosts);
-        app.Use(Authenticate);
+        app.Use(Admit);
+        app.Use(Identify);
 
         var api = app.MapGroup("/api/v1");
-        ServerEndpoints.Map(api, () => _shutdown.TrySetResult());
-        MeEndpoints.Map(api);
-        new UserEndpoints(_identity, _downloads).Map(api);
-        new DownloadEndpoints(_downloads, _identity, new DestinationPolicy(_options.ResolvedDestination)).Map(api);
+        ServerEndpoints.Map(api, _door.Mode, () => _shutdown.TrySetResult());
+        new DownloadEndpoints(_downloads, _options.ResolvedDestination).Map(api);
         app.MapFallback("/api/{**rest}", () => Problem.Create(404, "not_found", "No such endpoint."));
         return app;
     }
@@ -175,18 +148,17 @@ public sealed class DaemonHost : IAsyncDisposable
         }
     }
 
-    private static async Task RejectForeignHosts(HttpContext context, Func<Task> next)
+    private async Task Admit(HttpContext context, Func<Task> next)
     {
-        var host = context.Request.Host.Host;
-        if (!AllowedHosts.Contains(host, StringComparer.OrdinalIgnoreCase))
+        if (_door.Admit(context) is { } refusal)
         {
-            await Problem.WriteAsync(context, 400, "host_not_allowed", "This server only answers to its loopback names.");
+            await refusal.ExecuteAsync(context);
             return;
         }
         await next();
     }
 
-    private async Task Authenticate(HttpContext context, Func<Task> next)
+    private async Task Identify(HttpContext context, Func<Task> next)
     {
         var isPublic = HttpMethods.IsGet(context.Request.Method) && context.Request.Path == "/api/v1/server";
         if (isPublic || !context.Request.Path.StartsWithSegments("/api"))
@@ -195,40 +167,13 @@ public sealed class DaemonHost : IAsyncDisposable
             return;
         }
 
-        var presented = BearerToken(context.Request);
-        if (presented is null)
+        var result = await _door.IdentifyAsync(context);
+        if (result.Caller is not { } caller)
         {
-            // No credentials (what a cross-site browser request looks like): refuse, but don't let
-            // anyone use these to exhaust the budget that protects the real owner.
-            context.Response.Headers.WWWAuthenticate = "Bearer";
-            await Problem.WriteAsync(context, 401, "unauthorized", "A valid bearer token is required.");
+            await (result.Refusal ?? Problem.Create(401, "unauthorized", "Who is calling is not known.")).ExecuteAsync(context);
             return;
         }
-
-        // A known, unrevoked device token always works: a 256-bit token can't be guessed, so throttling
-        // only needs to slow down wrong guesses, and must never lock the owner out.
-        if (await _identity.AuthenticateAsync(presented) is { } principal)
-        {
-            context.SetPrincipal(principal);
-            await next();
-            return;
-        }
-
-        var source = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        if (_limiter.IsBlocked(source))
-        {
-            await Problem.WriteAsync(context, 429, "too_many_attempts", "Too many failed attempts. Try again later.");
-            return;
-        }
-        _limiter.RecordFailure(source);
-        context.Response.Headers.WWWAuthenticate = "Bearer";
-        await Problem.WriteAsync(context, 401, "unauthorized", "A valid bearer token is required.");
-    }
-
-    private static string? BearerToken(HttpRequest request)
-    {
-        var header = request.Headers.Authorization.ToString();
-        const string prefix = "Bearer ";
-        return header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? header[prefix.Length..].Trim() : null;
+        context.SetCaller(caller);
+        await next();
     }
 }

@@ -3,11 +3,11 @@ using System.Text.Json;
 using Sleipnir.Core.Api;
 using Sleipnir.Core.Interfaces;
 using Sleipnir.Core.Models;
-using Sleipnir.Server.Identity;
+using Sleipnir.Server.Access;
 
 namespace Sleipnir.Server.Api;
 
-internal sealed class DownloadEndpoints(IDownloadService downloads, IdentityService identity, DestinationPolicy destinations)
+internal sealed class DownloadEndpoints(IDownloadService downloads, string defaultDestination)
 {
     private const int DefaultLimit = 50, MaxLimit = 200, MaxUrls = 100, MaxKeyLength = 200;
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
@@ -32,16 +32,14 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, IdentityServ
 
     /// <summary>The download, if this caller may see it. Others' downloads look exactly like missing ones.</summary>
     private DownloadTask? Visible(HttpContext context, Guid id) =>
-        downloads.GetDownload(id) is { } task && CanSee(context.Principal(), task) ? task : null;
-
-    private static bool CanSee(Principal me, DownloadTask task) => me.IsAdmin || task.OwnerId == me.UserId;
+        downloads.GetDownload(id) is { } task && context.Caller().CanSee(task) ? task : null;
 
     private static IResult NotFound() => Problem.Create(404, "download_not_found", "No such download.");
 
-    private IResult List(HttpContext context, string? limit, string? cursor, Guid? user)
+    private IResult List(HttpContext context, string? limit, string? cursor, Guid? person)
     {
-        var me = context.Principal();
-        if (!me.IsAdmin && user is { } other && other != me.UserId)
+        var me = context.Caller();
+        if (!me.IsAdmin && person is { } other && other != me.PersonId)
         {
             return Problem.Create(403, "forbidden", "You can only list your own downloads.");
         }
@@ -61,7 +59,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, IdentityServ
         }
 
         var ordered = downloads.GetAllDownloads()
-            .Where(d => CanSee(me, d) && (user is null || d.OwnerId == user))
+            .Where(d => me.CanSee(d) && (person is null || d.OwnerId == person))
             .OrderBy(d => d.CreatedAt.Ticks).ThenBy(d => d.Id);
         var rest = after is { } a
             ? ordered.Where(d => d.CreatedAt.Ticks > a.Ticks || (d.CreatedAt.Ticks == a.Ticks && d.Id.CompareTo(a.Id) > 0))
@@ -76,7 +74,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, IdentityServ
     private async Task<IResult> Add(HttpContext context)
     {
         var request = context.Request;
-        var me = context.Principal();
+        var me = context.Caller();
         string body;
         using (var reader = new StreamReader(request.Body, Encoding.UTF8))
         {
@@ -98,18 +96,14 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, IdentityServ
         {
             return Problem.Create(400, "invalid_destination", "destination must be an absolute folder path.");
         }
-        var user = await identity.GetUserAsync(me.UserId);
-        if (user is null || !destinations.TryResolve(user, parsed.Destination, out var folder))
-        {
-            return Problem.Create(400, "destination_not_allowed", "That folder is outside the folders you may save to.");
-        }
+        var folder = string.IsNullOrWhiteSpace(parsed.Destination) ? defaultDestination : parsed.Destination;
 
         var key = request.Headers["Idempotency-Key"].ToString();
         if (key.Length > MaxKeyLength) return Problem.Create(400, "invalid_request", "Idempotency-Key is too long.");
-        if (key.Length == 0) return Results.Json(await AddAll(urls, folder, me.UserId), statusCode: 201);
+        if (key.Length == 0) return Results.Json(await AddAll(urls, folder, me.PersonId), statusCode: 201);
 
         var hash = IdempotencyCache<PageDto<DownloadDto>>.Hash(body);
-        key = $"{me.UserId}:{key}"; // keys are private to each user
+        key = $"{me.PersonId}:{key}"; // keys are private to each person
         await _addGate.WaitAsync();
         try
         {
@@ -121,7 +115,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, IdentityServ
                     return Problem.Create(422, "idempotency_key_reused", "That Idempotency-Key was used for a different request.");
             }
 
-            var page = await AddAll(urls, folder, me.UserId);
+            var page = await AddAll(urls, folder, me.PersonId);
             _idempotency.Store(key, hash, page);
             return Results.Json(page, statusCode: 201);
         }
@@ -131,7 +125,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, IdentityServ
         }
     }
 
-    private async Task<PageDto<DownloadDto>> AddAll(string[] urls, string folder, Guid ownerId)
+    private async Task<PageDto<DownloadDto>> AddAll(string[] urls, string folder, Guid? ownerId)
     {
         var added = new List<DownloadDto>();
         foreach (var url in urls)

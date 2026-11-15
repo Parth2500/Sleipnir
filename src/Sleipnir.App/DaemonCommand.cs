@@ -1,8 +1,6 @@
 using System.Runtime.InteropServices;
-using Microsoft.EntityFrameworkCore;
 using Sleipnir.Server.Hosting;
-using Sleipnir.Server.Identity;
-using Sleipnir.Server.Persistence;
+using Sleipnir.Server.Access;
 using Sleipnir.Server.Security;
 
 namespace Sleipnir;
@@ -19,7 +17,7 @@ public static class DaemonCommand
         {
             return await RunCoreAsync();
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or DbUpdateException or Microsoft.Data.Sqlite.SqliteException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             Console.Error.WriteLine(InstanceMessages.CouldNotStart(e));
             return StartFailureExitCode;
@@ -49,13 +47,8 @@ public static class DaemonCommand
         using var sigHup = PosixSignalRegistration.Create(PosixSignal.SIGHUP, OnSignal);
 
         var token = LocalAdminToken.LoadOrCreate(paths.Runtime);
-        using var database = Database.OpenFile(Path.Combine(paths.Data, "sleipnir.db"));
-        await Database.MigrateAsync(database);
-        var identity = new IdentityService(database);
-        await identity.EnsureLocalAdminAsync(Environment.UserName, token);
-
         var engine = EngineFactory.Create();
-        await using var host = DaemonHost.Create(new DaemonOptions(), engine, identity);
+        await using var host = DaemonHost.Create(new DaemonOptions(), engine, new LocalTokenDoor(token));
 
         // Listen first: if that fails nothing has been started that would need a clean shutdown.
         await host.StartAsync();
