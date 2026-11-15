@@ -222,4 +222,28 @@ public class ExtensionDoorTests
         Assert.True(ext.Downloads.Tasks.Single(t => t.Filename == "member.zip").PublicAddressesOnly);
         Assert.False(ext.Downloads.Tasks.Single(t => t.Filename == "admin.zip").PublicAddressesOnly);
     }
+
+    [Fact]
+    public async Task A_socket_folder_other_accounts_can_enter_is_refused()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "sleipnir-open-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(folder);
+        File.SetUnixFileMode(folder, (UnixFileMode)0b111_101_101); // 0755
+        try
+        {
+            var socket = Path.Combine(folder, "extension.sock");
+            await using var host = Sleipnir.Server.Hosting.DaemonHost.Create(
+                new Sleipnir.Server.Hosting.DaemonOptions(PerPersonRoot: "/x"), new Sleipnir.Tests.Tui.StubDownloadService(),
+                new Sleipnir.Server.Access.BifrostDoor(socket));
+
+            var error = await Assert.ThrowsAsync<IOException>(() => host.StartAsync());
+
+            Assert.Contains(folder, error.Message, StringComparison.Ordinal);
+            Assert.False(File.Exists(socket));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
 }

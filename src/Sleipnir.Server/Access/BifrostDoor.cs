@@ -23,6 +23,15 @@ public sealed class BifrostDoor(string socketPath) : IFrontDoor
     public void Listen(KestrelServerOptions kestrel, int port)
     {
         ArgumentNullException.ThrowIfNull(kestrel);
+        // The identity headers are only trustworthy if no other account can reach the socket, even in
+        // the moment between bind and chmod. Bifröst creates the folder 0700; anything wider is refused.
+        var folder = Path.GetDirectoryName(Path.GetFullPath(socketPath))!;
+        var mode = File.GetUnixFileMode(folder);
+        if ((mode & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+                     | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0)
+        {
+            throw new IOException($"The socket folder {folder} is open to other accounts (mode {Convert.ToString((int)mode, 8)}); it must be 700.");
+        }
         // A socket file left by a crash would make the bind fail.
         if (File.Exists(socketPath) || new FileInfo(socketPath).LinkTarget is not null) File.Delete(socketPath);
         kestrel.ListenUnixSocket(socketPath);
