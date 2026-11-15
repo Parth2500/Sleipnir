@@ -28,7 +28,7 @@ To run the TUI the same way (`-it` is required):
 
 ```bash
 podman run -it --rm --security-opt label=disable \
-  -v "$PWD:/src" -v ~/Downloads:/root/Downloads -v dnm-state:/root/.local/share/dnm -w /src \
+  -v "$PWD:/src" -v ~/Downloads:/root/Downloads -v sleipnir-state:/root/.local/share/sleipnir -w /src \
   mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/Sleipnir.App/Sleipnir.App.csproj
 ```
 
@@ -43,7 +43,7 @@ podman run --rm --security-opt label=disable -v "$PWD:/src" -w /src \
   mcr.microsoft.com/dotnet/sdk:10.0 dotnet publish src/Sleipnir.App/Sleipnir.App.csproj -p:PublishProfile=linux-x64
 ```
 
-This produces **`artifacts/linux-x64/dnm`**: one self-contained executable (about 43 MB) that runs
+This produces **`artifacts/linux-x64/sleipnir`**: one self-contained executable (about 43 MB) that runs
 on 64-bit Linux with glibc and **no .NET installed**. The settings live in
 `Properties/PublishProfiles/linux-x64.pubxml`:
 
@@ -53,7 +53,7 @@ on 64-bit Linux with glibc and **no .NET installed**. The settings live in
 | `EnableCompressionInSingleFile` | Smaller download |
 | `PublishReadyToRun` | Precompiled code for faster start-up |
 | `InvariantGlobalization` | No dependency on `libicu` |
-| `AssemblyName=dnm` (in the app `.csproj`) | A short command name |
+| `AssemblyName=sleipnir` (in the app `.csproj`) | A short command name |
 
 Not trimmed: `System.Text.Json` (the state store) and Spectre.Console use reflection, and trimming
 would risk breaking them.
@@ -61,8 +61,8 @@ would risk breaking them.
 For a release, package it with a checksum:
 
 ```bash
-cd artifacts && mkdir dnm-linux-x64 && cp linux-x64/dnm ../LICENSE ../README.md ../CHANGELOG.md dnm-linux-x64/
-tar -czf dnm-linux-x64.tar.gz dnm-linux-x64 && sha256sum dnm-linux-x64.tar.gz > dnm-linux-x64.tar.gz.sha256
+cd artifacts && mkdir sleipnir-linux-x64 && cp linux-x64/sleipnir ../LICENSE ../README.md ../CHANGELOG.md sleipnir-linux-x64/
+tar -czf sleipnir-linux-x64.tar.gz sleipnir-linux-x64 && sha256sum sleipnir-linux-x64.tar.gz > sleipnir-linux-x64.tar.gz.sha256
 ```
 
 `artifacts/` is gitignored and excluded from the Docker build context.
@@ -78,16 +78,17 @@ tar -czf dnm-linux-x64.tar.gz dnm-linux-x64 && sha256sum dnm-linux-x64.tar.gz > 
 │   │   ├── Interfaces/        IDownloadService, INetworkClient, IFileStorage, IDownloadStateStore,
 │   │   │                      RangeNotSupportedException, ServerBusyException
 │   │   └── Models/            DownloadTask, DownloadSegment, DownloadStatus, RemoteFileInfo, DownloadRecord
-│   ├── Sleipnir.Server/       the local REST API (ASP.NET Core): DaemonHost, endpoints, identity (users, devices,
-│   │                          destination policy), SQLite store + migrations, instance lock, app paths
+│   ├── Sleipnir.Server/       the REST API (ASP.NET Core): DaemonHost, endpoints, the two front doors
+│   │                          (Access/: LocalTokenDoor, BifrostDoor, Caller), instance lock, app paths
 │   ├── Sleipnir.Engine/       the download engine; no console and no web framework
 │   │   ├── Services/          DownloadService (queue, runs, retry, persistence), SegmentDownloader,
 │   │   │                      FileNameResolver, DownloadOptions
 │   │   └── Infrastructure/    HttpNetworkClient + HappyEyeballs, LocalFileStorage, JsonDownloadStateStore
-│   └── Sleipnir.App/          the `dnm` executable
+│   └── Sleipnir.App/          the `sleipnir` executable
 │       ├── Program.cs         command dispatch, composition root, key/render loop, signal handling
-│       ├── DaemonCommand.cs   `dnm daemon`
-│       ├── Service/           `dnm service …` (systemd user unit)
+│       ├── DaemonCommand.cs   `sleipnir daemon` (alone)
+│       ├── ExtensionCommand.cs `sleipnir extension` (started by Bifröst)
+│       ├── Service/           `sleipnir service …` (systemd user unit)
 │       └── UI/                TuiController, TuiRenderer, LineEditor, SlashCommands, SpeedTracker, Format
 ├── tests/Sleipnir.Tests/
 └── docs/
@@ -112,15 +113,15 @@ For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | `Tui/LineEditorAndCommandTests` | Editing keys, cursor movement, word/line deletion; command suggestions and prefix parsing |
 | `Tui/TuiControllerTests` | Paste-to-add (incl. several URLs), invalid input, selection and default selection, Space pause/resume, details, Del confirmation, Ctrl+C clear/quit, suggestions + Tab, commands, help, toasts |
 | `Tui/TuiRendererTests` | Empty state, rows, speed/ETA, header, escaping, details, unknown size, waiting segments, suggestions, help, toasts, narrow terminals, scrolling, fits the terminal height |
-| `ArchitectureTests` | Core has only framework references; Engine has no console/web references; state folder unchanged |
+| `ArchitectureTests` | Core has only framework references; Engine has no console/web references; state folder named `sleipnir` |
 | `Server/AppPathsTests`, `SecretTests`, `InstanceTests` | Per-OS folders, `0600` secret files and the admin token, single-instance lock, `daemon.json` |
 | `OwnershipTests` | The owner of a download is recorded, survives restarts, and old records load as ownerless |
-| `Server/DatabaseTests`, `IdentityServiceTests` | SQLite schema and constraints, hashed tokens, last-admin rule (also under concurrency), name rules |
-| `Server/MeEndpointTests`, `UserEndpointTests` | Per-device authentication, revocation, user/device management and admin-only rules |
-| `Server/DestinationPolicyTests`, `DownloadAccessTests` | Folder escapes (`..`, siblings, symlinks), members see only their own downloads |
+| `PublicAddressTests` | Which addresses count as public (home network, loopback, link-local, CGNAT, multicast, IPv4-mapped) |
+| `Server/ExtensionDoorTests` | Under Bifröst: identity headers required exactly, members see their own, view-only devices, no client folder, socket `0600` in a `0700` folder, members public-only |
+| `Server/ExtensionProcessTests` | Real `sleipnir extension`: refuses without Bifröst's variables, listens on the socket, opens no TCP port, stops on SIGTERM |
 | `Server/DaemonHostTests` | Token and Host checks, no CORS, throttling, port fallback (real Kestrel on loopback) |
 | `Server/DownloadEndpointTests` | Paging, validation, body limit, idempotency keys, control verbs, auth on every route |
-| `Server/DaemonProcessTests` | Real `dnm daemon` processes: start, second instance, TUI/daemon lock, shutdown, SIGTERM, crash recovery |
+| `Server/DaemonProcessTests` | Real `sleipnir daemon` processes: start, second instance, TUI/daemon lock, shutdown, SIGTERM, crash recovery |
 | `ServiceCommandTests` | systemd unit text and install/uninstall/status with a fake `systemctl` |
 | `EndToEndTests` | Real HTTP over loopback (`HttpListener`), with and without range support, slow body vs header timeout |
 
@@ -165,15 +166,15 @@ as the non-root `app` user. Because it is an interactive TUI, always run it with
 override the user so it can write to a mounted Downloads folder:
 
 ```bash
-podman build -t dnm .
+podman build -t sleipnir .
 
 # Podman (rootless): container root = you, so files in ~/Downloads are owned by you
 podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
-  -v ~/Downloads:/root/Downloads -v dnm-state:/root/.local/share/dnm dnm
+  -v ~/Downloads:/root/Downloads -v sleipnir-state:/root/.local/share/sleipnir sleipnir
 
 # Docker: run as your own UID so the container can write to your ~/Downloads
-docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/dnm \
-  -v ~/Downloads:/home/dnm/Downloads -v dnm-state:/home/dnm/.local/share/dnm dnm
+docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/sleipnir \
+  -v ~/Downloads:/home/sleipnir/Downloads -v sleipnir-state:/home/sleipnir/.local/share/sleipnir sleipnir
 ```
 
 See the [User Guide](USER_GUIDE.md#podman--docker) for why each flag is needed.

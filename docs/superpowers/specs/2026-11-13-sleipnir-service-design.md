@@ -9,6 +9,8 @@
 - *Bifröst decides **where a download goes** and who may see it (S11).*
 - *There is no OIDC sign-in, now or later (S2). Other devices use the one Bifröst client app (S8).*
 
+*Built 2026-11-15 (Bifröst step 2a, `plans/2026-11-15-two-modes.md`): the rename to `sleipnir`; alone without people (§7.1); `sleipnir extension` with the variables `BIFROST_SOCKET`, `BIFROST_API_SOCKET`, `BIFROST_DATA_DIR`, `BIFROST_EXTENSION`, `BIFROST_INTERFACE=1` (§6.3); the identity headers; the SSRF guard (§9). Owner, 2026-11-15: **alone, Sleipnir is a personal download manager, never a download hub**; downloading for other devices exists only under Bifröst.*
+
 *Decisions marked **[owner: S…]** refer to that log. Bifröst's design is `Asgard/Bifrost/docs/design.md`.*
 
 *Date: 2026-11-13 · Status: draft for review · Roadmap: Phase 2 (backend), Phase 3 (TUI as a client)*

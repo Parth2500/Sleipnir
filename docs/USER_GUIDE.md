@@ -20,21 +20,21 @@ dotnet run --project src/Sleipnir.App/Sleipnir.App.csproj
 
 ```bash
 dotnet publish src/Sleipnir.App/Sleipnir.App.csproj -c Release -o out
-dotnet "out/dnm.dll"
+dotnet "out/sleipnir.dll"
 ```
 
 ### Podman / Docker
 
 ```bash
-podman build -t dnm .
+podman build -t sleipnir .
 
 # Podman (rootless): container root = you, so files in ~/Downloads are owned by you
 podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
-  -v ~/Downloads:/root/Downloads -v dnm-state:/root/.local/share/dnm dnm
+  -v ~/Downloads:/root/Downloads -v sleipnir-state:/root/.local/share/sleipnir sleipnir
 
 # Docker: run as your own UID so the container can write to your ~/Downloads
-docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/dnm \
-  -v ~/Downloads:/home/dnm/Downloads -v dnm-state:/home/dnm/.local/share/dnm dnm
+docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/sleipnir \
+  -v ~/Downloads:/home/sleipnir/Downloads -v sleipnir-state:/home/sleipnir/.local/share/sleipnir sleipnir
 ```
 
 - `-it` is required: Sleipnir reads keys directly from the terminal.
@@ -44,26 +44,26 @@ docker run -it --rm --user "$(id -u):$(id -g)" -e HOME=/home/dnm \
   permission to write to your `~/Downloads`.
 - `--security-opt label=disable` (SELinux systems such as Fedora) lets the container use the mount
   without relabelling your real Downloads folder, which `:Z` would do.
-- `-v dnm-state:…` keeps Sleipnir's saved download list in a named volume, so downloads resume and
+- `-v sleipnir-state:…` keeps Sleipnir's saved download list in a named volume, so downloads resume and
   history survives between container runs. Without it, every run starts empty.
 - `podman stop` / `docker stop` shut Sleipnir down gracefully and save progress, just like quitting.
 
 ## Running as a background service
 
-Sleipnir can run without the interactive screen: `dnm daemon` starts the download engine as a
+Sleipnir can run without the interactive screen: `sleipnir daemon` starts the download engine as a
 background process with a local API. Downloads keep running and resume after a restart.
 
 ```bash
-dnm daemon                 # run in the foreground (what a service manager calls)
-dnm service install        # Linux: install and start a systemd user service
-dnm service status
-dnm service uninstall
+sleipnir daemon                 # run in the foreground (what a service manager calls)
+sleipnir service install        # Linux: install and start a systemd user service
+sleipnir service status
+sleipnir service uninstall
 loginctl enable-linger $USER   # optional: keep it running when logged out, start it at boot
 ```
 
-`dnm service install` must be run from the published `dnm` executable (not `dotnet run`).
+`sleipnir service install` must be run from the published `sleipnir` executable (not `dotnet run`).
 
-Only one Sleipnir can run per user: while the daemon is running, plain `dnm` explains that and exits
+Only one Sleipnir can run per user: while the daemon is running, plain `sleipnir` explains that and exits
 (the screen will connect to the daemon in a later release). If the daemon stops unexpectedly, the lock
 is released by the system and the next start works.
 
@@ -71,17 +71,17 @@ is released by the system and the next start works.
 
 | File | Purpose |
 |---|---|
-| `$XDG_RUNTIME_DIR/dnm/daemon.json` | port, process id and version of the running daemon |
-| `$XDG_RUNTIME_DIR/dnm/admin.token` | the local admin token (readable only by you) |
-| `~/.local/share/dnm/downloads/` | saved downloads (same as before) |
-| `~/.local/share/dnm/daemon.lock` | makes sure only one Sleipnir runs per user |
+| `$XDG_RUNTIME_DIR/sleipnir/daemon.json` | port, process id and version of the running daemon |
+| `$XDG_RUNTIME_DIR/sleipnir/admin.token` | the local admin token (readable only by you) |
+| `~/.local/share/sleipnir/downloads/` | saved downloads (same as before) |
+| `~/.local/share/sleipnir/daemon.lock` | makes sure only one Sleipnir runs per user |
 
 The API listens on `127.0.0.1` (port 7766, or the next free one: read it from `daemon.json`) and
 answers only to the host names `localhost`, `127.0.0.1` and `[::1]`. Everything except
 `GET /api/v1/server` needs the token:
 
 ```bash
-PORT=$(jq .port $XDG_RUNTIME_DIR/dnm/daemon.json); TOKEN=$(cat $XDG_RUNTIME_DIR/dnm/admin.token)
+PORT=$(jq .port $XDG_RUNTIME_DIR/sleipnir/daemon.json); TOKEN=$(cat $XDG_RUNTIME_DIR/sleipnir/admin.token)
 curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
      -d '{"urls":["https://example.com/file.zip"]}' http://localhost:$PORT/api/v1/downloads
 curl -H "Authorization: Bearer $TOKEN" http://localhost:$PORT/api/v1/downloads
@@ -92,35 +92,26 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:$PORT/api/v1/downloads
 Endpoints: `GET /server`, `POST /server/shutdown`, `GET/POST /downloads`, `GET/DELETE /downloads/{id}`,
 `POST /downloads/{id}/pause|resume|cancel`. Errors are `application/problem+json` with a stable `code`.
 Keep the token private: anyone who has it controls your downloads. Only your own machine can reach the
-API; sharing it on your home network, users and phone pairing are planned.
+API. Other devices never use this API: they go through [Bifröst](#part-of-bifröst).
 
-## Users and devices
+## Part of Bifröst
 
-The first time the daemon runs it creates an **admin** (named after your OS user) and a built-in
-device called **This computer**, whose token is `admin.token`. More people can be added:
+On its own, Sleipnir is yours alone: it downloads for the person at this computer, over loopback,
+and no other device can use it. It has no users, no roles and no pairing.
 
-```bash
-curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-     -d '{"displayName":"Sam"}' http://localhost:$PORT/api/v1/users          # a member
-curl -H "Authorization: Bearer $TOKEN" http://localhost:$PORT/api/v1/users      # list (admin)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:$PORT/api/v1/devices
-curl -H "Authorization: Bearer $TOKEN" -X DELETE "http://localhost:$PORT/api/v1/users/<id>?confirm=true"
-```
+[Bifröst](https://github.com/Parth2500/Bifrost) is the home service that the family's devices pair
+with. When Bifröst runs Sleipnir as one of its extensions, Sleipnir becomes the home's download
+manager:
 
-- **Members** see and control only their own downloads, and save into `~/Downloads/<their name>/`
-  (or the folder the admin sets with `allowedRoot`). Someone else's download looks like a missing one.
-  A member can't use `..`, a look-alike folder or a symlink to get out of their folder.
-- **Admins** see everything (`GET /downloads?user=<id>` filters), manage users, and can save anywhere.
-- There is always at least one admin: the last one can't be demoted or deleted.
-- **Deleting a user** needs `?confirm=true`, cancels their downloads and removes their devices; the
-  files already on disk stay.
-- Each device has its own secret token (only a hash is stored); revoking a device (`DELETE /devices/<id>`)
-  stops it on its very next request. "This computer" can't be revoked. If you delete `admin.token`, a new
-  one is created at the next start and the old one stops working.
-- Users and devices live in `~/.local/share/dnm/dnm.db` (readable only by you).
-
-Phones and other computers join by pairing (a QR code or a short code); that arrives with the
-home-network listener in a later release.
+- Bifröst starts it with `sleipnir extension`. Nobody types that command; it refuses to start
+  without the variables Bifröst sets.
+- It opens no network port. It listens only on a private socket that Bifröst created for it, and
+  learns who is calling (person, role, device) from Bifröst.
+- Each person sees and controls only their own downloads; an admin sees everyone's. A device that
+  paired as a view-only browser can only look.
+- Bifröst decides where files go: a client cannot choose a folder.
+- A member's download may only reach the public internet, never this machine or the home network.
+- Clients reach it at Bifröst's `/x/sleipnir/api/v1/…`.
 
 ## The screen
 
@@ -199,7 +190,7 @@ Sleipnir remembers your downloads. When you quit (`Ctrl+C` twice, `/quit`, closi
 Even after a crash or power cut, progress is safe: Sleipnir only records bytes that have actually been
 written to disk, so a resume can never skip data. You may lose up to a few seconds of progress.
 
-The saved state lives in `~/.local/share/dnm/downloads/` (one small JSON file per download; it
+The saved state lives in `~/.local/share/sleipnir/downloads/` (one small JSON file per download; it
 follows `$XDG_DATA_HOME` if set). Deleting that folder makes Sleipnir forget all downloads; the files in
 `~/Downloads` are not touched.
 
@@ -248,7 +239,7 @@ when a slot frees up.
 | `Failed: No data received for 30 s…` / `Timed out connecting…` | The server or network stopped responding, and retries didn't help. Check your connection and press `Space`. |
 | Download restarts from 0% after resuming | The server does not support ranges (see above). |
 | Leftover `*.dnm` files in `~/Downloads` | Normally these belong to paused/queued downloads and are resumed. If Sleipnir's saved state was deleted, they are orphans and safe to delete. |
-| Downloads don't come back after restarting the container | Add the `-v dnm-state:…` volume (see [Podman / Docker](#podman--docker)). |
+| Downloads don't come back after restarting the container | Add the `-v sleipnir-state:…` volume (see [Podman / Docker](#podman--docker)). |
 | `Invalid operation … console input` / crash on start in Docker | Run the container with `-it`. |
 | Garbled boxes or icons | Use a Unicode-capable terminal font, or widen the window. |
 

@@ -2,16 +2,26 @@
 
 ## Unreleased
 
-### Added: users, roles and devices (Phase 2, step 3a)
+### Changed: the command is now `sleipnir` (breaking)
 
-- The daemon now keeps **users and devices** in a private SQLite file (`dnm.db`). The first run creates an admin
-  and the built-in "This computer" device (its token is `admin.token`). Each device has its own token; only a
-  hash is stored; revoking works on the next request.
-- **Roles:** members see and control only their own downloads and save into `~/Downloads/<name>/` (or an
-  admin-set root), with no way out through `..`, sibling folders or symlinks. Admins see everything and manage
-  users (`/users`, `/devices`, `/me`). The last admin can't be demoted or deleted. Deleting a user needs
-  `?confirm=true`, cancels their downloads and keeps their files.
-- Downloads remember who added them (`ownerId`); older ones belong to the admin.
+- The executable, the user unit, and the settings, data and runtime folders are named `sleipnir`
+  instead of `dnm`. There is no migration: downloads saved under `~/.local/share/dnm/` are left there
+  and not read.
+
+### Added: Sleipnir as part of Bifröst
+
+- **`sleipnir extension`** is how Bifröst runs Sleipnir. It listens only on Bifröst's private socket
+  and opens no port; who is calling comes from Bifröst. Members see their own downloads, admins see
+  all, view-only devices can only look, and Bifröst decides where files go.
+- A member's downloads may only reach public addresses: never this machine or the home network,
+  including through redirects, DNS tricks, IPv6 forms that wrap an IPv4 address, or a proxy (SSRF guard).
+- `GET /api/v1/server` reports the mode: `alone` or `extension`.
+
+### Removed: users, roles and devices (breaking)
+
+- Alone, Sleipnir is a personal download manager for the person at the machine. The users, roles,
+  devices, `/users`, `/devices`, `/me` and the SQLite file added earlier in this release are gone; people
+  and devices belong to Bifröst. The list filter is `?person=` instead of `?user=`.
 
 ### Added: background service and local API (Phase 2, step 2)
 

@@ -28,10 +28,14 @@ one file. It can pause, resume (even after a restart), cancel, queue, and retry 
 
 ## Background service
 
-`dnm daemon` runs the download engine without the screen, with a token-protected local REST API;
-`dnm service install` keeps it running as a systemd user service. It has users and roles: an admin and
-members who only see their own downloads. See the
+`sleipnir daemon` runs the download engine without the screen, with a token-protected local REST API;
+`sleipnir service install` keeps it running as a systemd user service. See the
 [User Guide](docs/USER_GUIDE.md#running-as-a-background-service).
+
+Sleipnir on its own is a **personal download manager**: it downloads for the person at this
+computer, and nothing else can reach it. Downloading for the rest of the family, from their phones
+and TVs, is what it does as part of [Bifröst](https://github.com/Parth2500/Bifrost), the home
+service: see [Part of Bifröst](docs/USER_GUIDE.md#part-of-bifröst).
 
 ## Quick start
 
@@ -39,8 +43,8 @@ members who only see their own downloads. See the
 `dotnet publish -p:PublishProfile=linux-x64` (see [Development Guide](docs/DEVELOPMENT.md#production-build-linux)), then:
 
 ```bash
-install -m 755 artifacts/linux-x64/dnm ~/.local/bin/dnm   # make sure ~/.local/bin is on your PATH
-dnm
+install -m 755 artifacts/linux-x64/sleipnir ~/.local/bin/sleipnir   # make sure ~/.local/bin is on your PATH
+sleipnir
 ```
 
 **From source:**
@@ -69,9 +73,9 @@ Or type `/` for commands with autocomplete: `/add`, `/pause`, `/resume`, `/cance
 Running in a container (Podman shown; Docker instructions are in the [User Guide](docs/USER_GUIDE.md#podman--docker)):
 
 ```bash
-podman build -t dnm .
+podman build -t sleipnir .
 podman run -it --rm --security-opt label=disable --user root -e HOME=/root \
-  -v ~/Downloads:/root/Downloads -v dnm-state:/root/.local/share/dnm dnm
+  -v ~/Downloads:/root/Downloads -v sleipnir-state:/root/.local/share/sleipnir sleipnir
 ```
 
 ## Features

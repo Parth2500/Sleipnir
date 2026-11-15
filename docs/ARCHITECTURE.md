@@ -43,7 +43,7 @@ flowchart TD
 
 ## The daemon
 
-`dnm daemon` hosts the same engine behind a local API. `Sleipnir.Server` is a library (ASP.NET Core
+`sleipnir daemon` hosts the same engine behind a local API. `Sleipnir.Server` is a library (ASP.NET Core
 minimal APIs on Kestrel) that wraps any `IDownloadService`:
 
 ```mermaid
@@ -60,7 +60,7 @@ flowchart LR
   → bearer-token check (the right token always passes; wrong guesses are throttled; requests without
   credentials are refused without counting) → endpoints. No CORS headers are ever sent.
 - **One engine per user:** `InstanceLock` is an exclusive open file handle (`daemon.lock`) in the data directory, beside the state it protects,
-  taken by both `dnm daemon` and the interactive screen, so two processes never write the same state.
+  taken by both `sleipnir daemon` and the interactive screen, so two processes never write the same state.
   The operating system releases it if the process dies.
 - **No ambient configuration:** the host is built from an empty builder, so `appsettings.json` and `Kestrel__*`
   environment variables cannot add a listener or widen the bind address.
@@ -72,23 +72,30 @@ flowchart LR
 - **Shutdown:** `POST /api/v1/server/shutdown`, SIGTERM, SIGINT or SIGHUP stop the host, then call
   `ShutdownAsync` so progress is saved and downloads resume on the next start.
 
-## Identity and access
+## Two front doors
 
-`IdentityService` (in `Sleipnir.Server`) owns users and devices in SQLite (`dnm.db`, EF Core with snake_case
-names and migrations that run at start-up). Every request goes through the same pipeline: error mapping →
-`Host` allowlist → bearer token → endpoint.
+One engine and one API, reached through exactly one of two front doors (`IFrontDoor` in
+`Sleipnir.Server/Access`). Each turns a request into a `Caller`: a person id (or none), whether they
+are an admin, and whether their device is view-only.
 
-- **Authentication:** the token is hashed (SHA-256) and looked up; revoked devices and deleted users
-  fail on the very next request. The local `admin.token` is the token of the built-in "This computer"
-  device, refreshed at each start. `LastSeenAt` is updated at most once a minute.
-- **Authorization:** `Principal` (user, role, device) is attached to the request. Admin-only endpoints return
-  403; a download that isn't yours is reported as missing (404) so ids can't be probed.
-- **Ownership** is `DownloadTask.OwnerId` in Core, saved in the JSON download records (older records have no
-  owner and belong to the admin). The queue stays global.
-- **Folders:** `DestinationPolicy` resolves a member's requested folder through symlinks and requires it to lie
-  inside their root; the resolved path is what the engine writes to. Any `..` is refused.
-- **Serialization:** all database access goes through one gate (one daemon per user), which also makes
-  "keep at least one admin" race-free.
+| | `LocalTokenDoor`: alone | `BifrostDoor`: under Bifröst |
+|---|---|---|
+| Started by | `sleipnir daemon` (or the systemd user unit) | Bifröst, as `sleipnir extension` |
+| Listens on | `127.0.0.1` and `[::1]`, port 7766 | Bifröst's private Unix socket only (`0600`, in a `0700` folder) |
+| Who is calling | The holder of `admin.token`: the person at this machine, who may do everything | Bifröst's headers `X-Bifrost-Person-Id`, `-Role`, `-Device-Id`, `-Device-Kind`, each exactly once, or `401 no_identity` |
+| `Host` allowlist | Yes (DNS rebinding) | No TCP listener to rebind to |
+| Where files go | `~/Downloads`, or an absolute `destination` | `<data>/downloads/<person id>/` (until Bifröst's folders); a `destination` is refused |
+| Owner of a download | None | The person id |
+
+- **Alone is personal.** Sleipnir alone downloads for the person at the machine only. People,
+  roles, devices and downloading for other devices exist only under Bifröst, which owns them.
+- **Authorization** (under Bifröst): a member sees only their own downloads, and another's looks
+  missing (404); an admin sees all and filters with `?person=`; a `browser-fallback` device gets
+  `403 view_only` on every change; shutdown is admin only.
+- **SSRF guard:** a member's download is flagged `PublicAddressesOnly`. `HttpNetworkClient` sends such
+  requests through a separate `HttpClient` whose connect step dials only addresses that
+  `PublicAddress.IsPublic` accepts, for every connection, so redirects and DNS rebinding are covered and
+  no pooled connection to a private address is reused. The failure is not retried.
 
 ## Download lifecycle
 
@@ -240,7 +247,7 @@ because download threads write them and the UI thread reads them.
 ## Persistence: surviving restarts
 
 `IDownloadStateStore` holds one `DownloadRecord` per download. `JsonDownloadStateStore` keeps them at
-`$XDG_DATA_HOME/dnm/downloads/<id>.json` (usually `~/.local/share/dnm/downloads/`).
+`$XDG_DATA_HOME/sleipnir/downloads/<id>.json` (usually `~/.local/share/sleipnir/downloads/`).
 
 | When | What is saved |
 |------|---------------|
@@ -343,7 +350,7 @@ See the [roadmap](https://github.com/Parth2500/Sleipnir/issues/1) and
 
 | Limitation | Direction |
 |------------|-----------|
-| Options are hard-coded in `Program.cs` | Settings file (`~/.config/dnm/settings.json`), Phase 2 |
+| Options are hard-coded in `Program.cs` | Settings file (`~/.config/sleipnir/settings.json`), Phase 2 |
 | No bandwidth limit | Token-bucket limiter around segment reads, Phase 2 |
 | A download whose size is unknown can't resume mid-file | Inherent without ranges; nothing to do |
 | One output folder (`~/Downloads`) | Part of the settings file / CLI mode |
