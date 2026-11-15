@@ -20,6 +20,14 @@ public class HttpNetworkClientTests
     }
 
     [Fact]
+    public void The_guarded_handler_never_uses_a_proxy()
+    {
+        // A proxy would make the connection on our behalf, to an address the connect step never sees.
+        Assert.False(HttpNetworkClient.CreateHandler(publicOnly: true).UseProxy);
+        Assert.True(HttpNetworkClient.CreateHandler(publicOnly: false).UseProxy);
+    }
+
+    [Fact]
     public async Task A_public_only_request_to_loopback_fails_before_connecting()
     {
         using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);

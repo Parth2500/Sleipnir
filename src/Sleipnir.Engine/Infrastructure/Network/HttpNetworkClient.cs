@@ -35,8 +35,16 @@ public class HttpNetworkClient : INetworkClient
     /// Public-only requests get their own client, so they never reuse a pooled connection that an
     /// unrestricted request opened to a home-network address.
     /// </summary>
-    private static HttpClient CreateDefaultClient(TimeSpan headersTimeout, bool publicOnly) => new(new SocketsHttpHandler
+    private static HttpClient CreateDefaultClient(TimeSpan headersTimeout, bool publicOnly) => new(CreateHandler(publicOnly))
     {
+        // Covers sending the request and receiving headers only; body reads are bounded by cancellation.
+        Timeout = headersTimeout,
+    };
+
+    /// <summary>The connection handler. A guarded one never uses a proxy, which would connect on our behalf to an address the check never sees.</summary>
+    public static SocketsHttpHandler CreateHandler(bool publicOnly) => new()
+    {
+        UseProxy = !publicOnly,
         // Recycle connections so DNS changes are picked up during long sessions.
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         ConnectTimeout = TimeSpan.FromSeconds(30),
@@ -49,10 +57,6 @@ public class HttpNetworkClient : INetworkClient
                 publicOnly ? PublicAddress.IsPublic : null);
             return new NetworkStream(socket, ownsSocket: true);
         },
-    })
-    {
-        // Covers sending the request and receiving headers only; body reads are bounded by cancellation.
-        Timeout = headersTimeout,
     };
 
     public Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default, bool publicOnly = false) =>
