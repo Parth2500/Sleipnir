@@ -15,6 +15,11 @@ public static class ExtensionCommand
 
     public static async Task<int> RunAsync()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            await Console.Error.WriteLineAsync("sleipnir extension needs Unix sockets; Bifröst runs on Linux for now.");
+            return UsageExitCode;
+        }
         if (ExtensionEnvironment.Read(Environment.GetEnvironmentVariable, out var missing) is not { } env)
         {
             await Console.Error.WriteLineAsync($"sleipnir extension is started by Bifröst: {missing} is not set.");
@@ -32,6 +37,7 @@ public static class ExtensionCommand
         }
     }
 
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     private static async Task<int> RunCoreAsync(ExtensionEnvironment env)
     {
         using var instanceLock = InstanceLock.TryAcquire(env.DataDir);

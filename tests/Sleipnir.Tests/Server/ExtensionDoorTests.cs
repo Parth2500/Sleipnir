@@ -5,6 +5,7 @@ using static Sleipnir.Tests.Server.ExtensionFixture;
 
 namespace Sleipnir.Tests.Server;
 
+[System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
 public class ExtensionDoorTests
 {
     private static async Task<JsonElement> Json(HttpResponseMessage response) =>

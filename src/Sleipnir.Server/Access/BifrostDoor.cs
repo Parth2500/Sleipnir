@@ -9,6 +9,7 @@ namespace Sleipnir.Server.Access;
 /// Unix socket Bifröst gave it, and learns who is calling from the headers Bifröst adds. The headers
 /// are trusted because nothing but Bifröst's account can reach a 0600 socket in a 0700 folder.
 /// </summary>
+[System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
 public sealed class BifrostDoor(string socketPath) : IFrontDoor
 {
     public const string PersonHeader = "X-Bifrost-Person-Id";

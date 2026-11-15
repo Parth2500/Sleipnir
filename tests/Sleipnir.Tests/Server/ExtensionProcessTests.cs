@@ -3,6 +3,7 @@ using System.Text.Json;
 
 namespace Sleipnir.Tests.Server;
 
+[System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
 public sealed class ExtensionProcessTests : IDisposable
 {
     private const int SIGTERM = 15;

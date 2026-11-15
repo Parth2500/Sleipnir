@@ -10,6 +10,7 @@ namespace Sleipnir.Tests.Server;
 /// Sleipnir as a Bifröst extension: a real host behind the Bifröst door on a temp Unix socket, and
 /// a client that plays Bifröst by sending the identity headers itself.
 /// </summary>
+[System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
 public sealed class ExtensionFixture : IAsyncDisposable
 {
     public const string Data = "/bifrost-data/x/sleipnir";
