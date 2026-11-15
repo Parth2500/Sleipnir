@@ -1,6 +1,15 @@
 # Sleipnir as a service: backend design
 
-*Formerly "DotNet Download Manager" (DNM). Renamed to **Sleipnir**, Odin's eight-legged horse (eight connections), on 2026-11-13. The `dnm` command and data folder names are pending a decision.*
+*Formerly "DotNet Download Manager" (DNM). Renamed to **Sleipnir**, Odin's eight-legged horse (eight connections), on 2026-11-13. The command and the data folder are renamed from `dnm` to `sleipnir`, with no transition period [owner, 2026-11-14]. This doc still writes `dnm` where it describes what is built today.*
+
+*Revised 2026-11-14 after the suite decisions S1 to S14 (`Asgard/docs/decisions.md`). What changed:*
+
+- *Sleipnir has **two modes** (S6). **Alone:** one machine, one person, loopback only, no users and no pairing. **Under Bifröst:** an extension that Bifröst starts and routes to.*
+- *Users, roles, devices, tokens, pairing, the LAN listener, the home key, discovery and the audit log **move to Bifröst** (S4). Sections 6 and 7 below are rewritten. The identity code built on 2026-11-13 (`IdentityService`, the SQLite store) is the seed of Bifröst and is extracted, not thrown away.*
+- *Bifröst decides **where a download goes** and who may see it (S11).*
+- *There is no OIDC sign-in, now or later (S2). Other devices use the one Bifröst client app (S8).*
+
+*Decisions marked **[owner: S…]** refer to that log. Bifröst's design is `Asgard/Bifrost/docs/design.md`.*
 
 *Date: 2026-11-13 · Status: draft for review · Roadmap: Phase 2 (backend), Phase 3 (TUI as a client)*
 
@@ -10,11 +19,15 @@ for recommended defaults to be used "for now" and revisited when the time comes.
 
 ## 1. Intent
 
-Sleipnir is becoming a **download server that other devices control**, not just an app on one machine.
-A home PC runs Sleipnir in the background as a *home server* doing the heavy downloading. Everything a
-person sees is a **client** of that service: today's TUI first, and later a web UI, browser
-extensions and an Android app. A phone both downloads on its own and remote-controls the home
-server. Family members share the server; friends run their own.
+Sleipnir is a download engine behind a stable API, with two ways to run it [owner: S6]:
+
+- **Alone.** A background service on one machine, for the person at that machine. The TUI is its
+  first client. No users, no pairing, loopback only.
+- **Under Bifröst.** The home's download manager. Bifröst gives it people and devices, and Sleipnir
+  gives Bifröst downloading. Family members share it from the Bifröst client app. Friends run their
+  own home.
+
+Bifröst extends Sleipnir with other devices. Sleipnir extends Bifröst with downloads.
 
 The owner's explicit priority: **build the backend robust enough now that all future clients, on
 Windows, macOS, Linux and Android, and for Chrome, Firefox, Edge and Safari, can be written later
@@ -24,29 +37,33 @@ without changing it.** Order of work [owner]: backend → TUI as a client → on
 
 **Goals (this design)**
 - A background service with a stable, versioned, documented API.
-- Users and roles: each user sees and controls only their own downloads; the admin sees and controls all [owner].
-- Device pairing with admin approval; revocable devices [owner].
-- Safe on the home network: encrypted, impostor-proof, resistant to websites and other LAN devices [owner].
-- Discovery: phones find the server on the Wi-Fi without typing addresses [owner].
-- Runs per-user on Linux now; designed for Windows, macOS and Android [owner].
+- Ownership: under Bifröst, each person sees and controls only their own downloads, and the admin sees and controls all [owner]. Bifröst says who is calling.
+- A pending state: a download can wait for an answer from the admin before it starts [owner: S12].
+- Safe on one machine: resistant to websites and to other accounts on that machine [owner].
+- Runs alone per-user on Linux now; designed for Windows and macOS [owner].
+- Not Sleipnir's any more: users, roles, devices, pairing, encryption on the home network, and discovery. Bifröst owns them [owner: S4].
 - The existing download engine (resume, retries, Happy Eyeballs, crash-safe state) is reused unchanged in behaviour.
 - The TUI becomes the first client (Phase 3), proving the API.
 
 **Designed for, built later [owner]**
-- LAN file sharing between devices (PC → phone: phone downloads a temporary link; phone → PC: resumable upload).
-- Scheduling, an optional "needs approval" state, external sign-in (OIDC, e.g. Heimdall), remote access from outside the home network.
-- Integrations reacting to events (Jellyfin rescan, scripts, notifications).
-- Relaying: a browser on a laptop reaches the home server through the laptop's own Sleipnir.
+- LAN file sharing between devices. It may become its own Bifröst extension, "Files", because it depends on pairing and not on downloading [owner: S5].
+- Scheduling.
+- Events other extensions react to. Saga scans a folder on "download finished" [owner: S11].
+- The engine on the phone, inside the Bifröst client app, so a phone can pre-download on home Wi-Fi [owner: S13].
 
 **Non-goals (now)**
 - Building the web UI, browser extensions, Android app or CLI mode.
 - Access from outside the home network. The design must not rule it out.
-- Streaming (Jellyfin's job). Suite integration with other projects (parked: `Asgard/docs/suite-vision.md`).
+- Streaming (Saga's job, Jellyfin's until then).
+- Sign-in of any kind, OIDC included [owner: S2].
+- Reaching another machine's Sleipnir from a browser. A browser is used on the host only [owner: S8].
 - Syncing download lists between separate Sleipnir servers.
 
 **Anti-goals (failure even if it "works")**
 - Any dependency on the internet, a cloud account or telemetry for Sleipnir to function.
-- Anything on the home network can control Sleipnir without pairing; Sleipnir exposed on the LAN by default.
+- Sleipnir opens a port on the home network. Alone it listens on loopback only. Under Bifröst it listens on Bifröst's private socket only.
+- Sleipnir writes to a path that did not come from its own setting (alone) or from Bifröst (extension).
+- Sleipnir alone stops working, or needs Bifröst [owner: S6].
 - A website the user visits can drive the local Sleipnir.
 - Regressions in download correctness: the engine's byte-identical, crash-safe guarantees must hold.
 - Single-letter or surprising behaviour changes in the TUI: Phase 3 keeps today's screens and keys.
@@ -65,23 +82,26 @@ without changing it.** Order of work [owner]: backend → TUI as a client → on
   - `ILogger` everywhere, with a local file sink. OpenTelemetry is optional and off by default (anti-goal: no phoning home).
   - The future web UI uses **Angular**, as Heimdall's ADR 001 does.
   - **Deliberate differences:** plain WebSocket (not Socket.IO/SignalR), so any client can connect without a library; the Android app in .NET (not Capacitor/Flutter), because it must run the engine.
-- No root/administrator rights needed to install or run.
+- Alone: no root/administrator rights needed to install or run. Under Bifröst, Bifröst installs and starts it under Bifröst's service account [owner: S12].
 - Existing users' state (`~/.local/share/dnm/downloads/*.json`) is imported, not lost.
 - Must keep working with no network at all (loopback only).
 
 ## 4. Architecture
 
 ```
-          ┌──────────────────────── dnm daemon (one per OS user) ─────────────────────────┐
-          │  Sleipnir.Server (ASP.NET Core)                                                     │
-          │   ├─ REST  /api/v1/…      ├─ WebSocket /api/v1/events   ├─ auth, roles, audit │
-          │   ├─ pairing (QR, code)   ├─ mDNS announcer             └─ (shares: later)    │
-          │  Sleipnir.Engine (download engine, unchanged behaviour)   SQLite store             │
-          └───────▲───────────────────────────────────▲───────────────────────────────────┘
-       loopback HTTP 127.0.0.1                LAN HTTPS (opt-in), fingerprint-pinned
-                  │                                     │
-   TUI (Sleipnir.Client) on this machine       phones, laptops, later browsers via their local Sleipnir
+ ALONE                                          UNDER BIFRÖST
+ ┌──── sleipnir daemon (one per OS user) ───┐   ┌──────────── Bifröst (system service) ───────────┐
+ │ Sleipnir.Server: REST + WebSocket       │   │ people · devices · pairing · folders · events   │
+ │ local token · Host allowlist            │   │        │ private socket, identity in headers    │
+ │ Sleipnir.Engine                         │   │ ┌──────▼─────────── sleipnir ─────────────────┐ │
+ └────────▲────────────────────────────────┘   │ │ Sleipnir.Server: same REST + events         │ │
+   loopback HTTP 127.0.0.1                     │ │ Sleipnir.Engine                             │ │
+          │                                    │ └─────────────────────────────────────────────┘ │
+   TUI (Sleipnir.Client) on this machine       └────────▲──────────────────────────▲─────────────┘
+                                                 Bifröst client app            browser on the host
 ```
+
+One engine and one API. Only the front door differs.
 
 ### 4.1 Projects [owner, structure; names my call]
 
@@ -89,29 +109,34 @@ without changing it.** Order of work [owner]: backend → TUI as a client → on
 |---|---|---|---|
 | `Sleipnir.Core` | Models, interfaces, API contracts (DTOs, event envelopes) | — | everywhere |
 | `Sleipnir.Engine` | Today's `Services/` and `Infrastructure/` (download service, segments, HTTP client, Happy Eyeballs, storage, state store). No ASP.NET, no console | Core | everywhere, incl. Android |
-| `Sleipnir.Server` | API endpoints, WebSocket hub, auth, users/devices, pairing, discovery, security middleware, SQLite persistence | Core, Engine | desktop/server |
+| `Sleipnir.Server` | API endpoints, events, the two front doors (loopback with a local token; Bifröst's socket with identity headers), security middleware, persistence | Core, Engine | desktop/server |
 | `Sleipnir.Client` | Typed .NET client for REST + WebSocket, with reconnect | Core | TUI, later Android |
 | `dnm` (app) | TUI, command dispatch (`dnm`, `dnm daemon`, `dnm service …`) | all | desktop |
 
-The Android app (later) is .NET (MAUI or .NET for Android), reusing `Sleipnir.Engine` and `Sleipnir.Client`.
+There is no Sleipnir Android app. The one Bifröst client app is .NET for Android [owner: S13] and can later reuse `Sleipnir.Engine` and `Sleipnir.Client`.
 **The phone never runs `Sleipnir.Server`** [owner]: ASP.NET Core isn't supported on Android, and a
 server fights the OS's battery rules.
 
 ### 4.2 Commands [owner]
 
-- `dnm`: start the TUI; start the daemon first if it isn't running (detached), then connect.
-- `dnm daemon`: run the service in the foreground (what systemd/launchd/containers call).
-- `dnm service install | uninstall | status`: register automatic start for the current OS user.
-- Later: `dnm add <url>` etc. (CLI mode, roadmap "Later").
+Written with the new command name. Today's build still installs `dnm`.
+
+These are the commands of Sleipnir alone. Under Bifröst, Bifröst starts Sleipnir and nobody types them.
+
+- `sleipnir`: start the TUI; start the daemon first if it isn't running (detached), then connect.
+- `sleipnir daemon`: run the service in the foreground (what systemd/launchd/containers call).
+- `sleipnir service install | uninstall | status`: register automatic start for the current OS user.
+- Later: `sleipnir add <url>` etc. (CLI mode, roadmap "Later").
 
 ## 5. Running as a service [owner]
+
+This section is Sleipnir alone. Under Bifröst there is no Sleipnir service: Bifröst is the system service and Sleipnir is its child process (Bifröst design §8.4).
 
 | OS | Mechanism | Built now? |
 |---|---|---|
 | Linux | systemd **user** unit; docs explain `loginctl enable-linger` so it starts at boot without login | **yes** |
 | Windows | Task Scheduler task "at logon", hidden | designed for, later [my call] |
 | macOS | launchd LaunchAgent | designed for, later [my call] |
-| Android | foreground service inside the app | later |
 
 - **Single instance per user:** an exclusive lock on `daemon.lock` in the **data** directory (next to the state it protects; two processes that disagree about `XDG_RUNTIME_DIR`, e.g. a systemd service and a cron job, still exclude each other [review fix 2026-11-13]). A second
   `dnm daemon` exits with a clear message.
@@ -135,108 +160,102 @@ key storage as a known weakness. The `0600` file stays the fallback for headless
 
 ## 6. Networking
 
-### 6.1 Listeners [owner, model; ports my call]
+### 6.1 Alone
 
 | Listener | Address | Protocol | Default |
 |---|---|---|---|
 | Loopback | `127.0.0.1` and `[::1]` | HTTP | always on, port **7766** (next free port if taken, recorded in `daemon.json`) |
-| Home network | all LAN interfaces | **HTTPS only** | **off**; the admin enables it. Port **7767** (fixed, so pinned clients can reconnect; configurable) |
 
-### 6.2 Server identity and pinning [owner]
+That is the only listener. There is no LAN listener, no certificate and no discovery in Sleipnir.
 
-- On first start the server generates an **ECDSA P-256 key pair and a self-signed certificate**
-  (long-lived) [my call: algorithm]. The **fingerprint** is SHA-256 over the certificate's public
-  key (SPKI), so certificate renewal with the same key keeps the fingerprint.
-- Native clients **pin the fingerprint**, not the address or hostname; a changed IP is fine.
-- `dnm identity rotate` (admin) creates a new key; every device must re-pair. Used if the key may
-  have leaked.
+### 6.2 Under Bifröst
 
-### 6.3 Discovery [owner]
+Sleipnir opens no network port. It listens on the private socket Bifröst creates for it. Bifröst
+owns the LAN listener, the home key and its fingerprint, pinning, and mDNS discovery
+(Bifröst design §6). The service type `_dnm._tcp` and the port 7767 are gone.
 
-- mDNS / DNS-SD service type `_dnm._tcp`, announced **only when the LAN listener is on**.
-- TXT record: display name, API version, LAN port, **short fingerprint prefix**. Nothing about users or downloads.
-- Discovery is a convenience; QR codes and manual `host:port` entry always work (some networks block multicast).
-- Must coexist with an OS responder already using UDP 5353 (Avahi on Linux, Bonjour on macOS,
-  Windows' built-in mDNS). Prefer publishing via the OS responder where available (e.g. Avahi
-  over D-Bus); otherwise a shared-socket responder [left to builder: library choice].
-- Announced information is unauthenticated by nature. The fingerprint prefix only helps pick
-  the right server; **trust comes from pairing** (§7).
+### 6.3 How Sleipnir knows its mode
 
-### 6.4 Browsers [owner]
+It decides at start-up, from how it was started [left to the builder: an argument or an environment
+variable set by Bifröst]. It never runs both front doors at once.
 
-- Browser clients (web UI, extensions) talk to **the Sleipnir on their own machine over loopback**.
-  Reaching another server goes through that local Sleipnir (relay: designed for, built later).
-- Optional for later: the admin exports the server certificate so a browser on another machine
-  can trust it once.
+### 6.4 Browsers
 
-## 7. Users, devices, pairing [owner]
+A browser is used on the same machine as Sleipnir, over loopback (alone) or through Bifröst on the
+host. A browser on another device is not a Sleipnir client [owner: S8]. Browser extensions talk to
+loopback on their own machine. How a laptop's browser extension reaches the home is an open question
+for Bifröst (a desktop client), not for Sleipnir.
+
+## 7. Who is calling, and what they may do
 
 ### 7.1 Model
 
-- **User:** id, display name, role (`admin` | `member`), created. Later: an optional external
-  identity (`issuer` + `subject`) for OIDC/Heimdall sign-in [owner: designed for].
-- **Device:** id, owning user, name, platform, token hash, created, last seen, revoked.
-- **Download:** today's model **plus an owning user**. Imported downloads belong to the admin.
-- The person who first runs the server is its **admin**. More admins are allowed [my call];
-  the last admin can't be demoted or deleted.
+| | Alone | Under Bifröst |
+|---|---|---|
+| People | None. Whoever holds the local token is "the person at this machine" | Bifröst's people |
+| Devices | None | Bifröst's devices |
+| Pairing | None | Bifröst's (design §7). The `dnm://` link is gone |
+| Proof of identity | A random 256-bit local token, in the runtime folder, `0600` | Headers Bifröst adds: person, role, device, device kind. Trusted because only Bifröst can reach the socket |
+| Owner of a download | None | A Bifröst person id |
 
-### 7.2 Credentials [my call]
+- Sleipnir keeps **no** users, roles, devices, invitations or audit log of its own [owner: S6].
+- `DownloadTask.OwnerId` stays in `Sleipnir.Core`. Alone it is empty. Under Bifröst it holds the
+  person id. Downloads made alone belong to the admin if the same data is later run under Bifröst.
+- The local token rules stay: SHA-256 at rest is not needed for a file the owner can read, but the
+  token is never logged, never in a URL, and wrong guesses are throttled.
 
-- Each device gets a **random 256-bit token** (base64url), sent as `Authorization: Bearer …`.
-  The server stores **only its SHA-256 hash**. Revocation is immediate, so no JWTs are needed.
-- **Local admin:** the daemon writes a token for a built-in "This computer" admin device into the
-  runtime directory (`0600`). The local TUI reads it. The OS user's file permissions are the proof [owner].
-- Tokens never appear in URLs, logs or WebSocket query strings (see §8.3 for WebSocket auth).
+### 7.2 What moved to Bifröst
 
-### 7.3 Pairing path A: QR code (or link)
+Built on 2026-11-13 in `Sleipnir.Server` and now Bifröst's: `IdentityService`, the users and devices
+tables, per-device tokens, `GET /me`, the user and device endpoints, and "keep at least one admin".
+They are extracted as step 1 of Bifröst's order of work. Sleipnir alone must keep working at every
+step of that extraction.
 
-1. The admin creates an **invitation** for a user (TUI or an admin device). It is single-use and
-   expires after 10 minutes [my call].
-2. Payload: LAN address(es), port, full fingerprint, invitation secret, server name. It is shown
-   as a QR code and as a copyable link (`dnm://pair?...`) [my call: scheme].
-3. The new device connects over HTTPS, **checks the fingerprint against the payload**, and redeems
-   the secret with its name and platform. It receives its device token.
-4. Creating the invitation *is* the admin's approval, so no second step.
+Designed here on 2026-11-13 and now designed in Bifröst: invitations, QR pairing, the 6-digit code,
+pending join requests, the home key and its rotation, the audit log.
 
-### 7.4 Pairing path B: discover, then confirm a code (headless servers)
+### 7.3 Where files go [owner: S11]
 
-1. The device finds the server via mDNS (or a manual address) and opens HTTPS, **trusting on
-   first use for this request only**.
-2. It sends a **join request**: device name, platform, and a random device nonce.
-3. Both sides compute a **6-digit short authentication string** bound to the fingerprint the
-   device actually saw, the device nonce, and a server nonce. An attacker in the middle presents
-   a different certificate, so the codes differ. (Exact construction is left to the builder;
-   requirement: an attacker must not be able to make the codes match except by luck, about one in
-   a million.)
-4. Admin clients get a live event; the admin compares the codes, **picks the user** and approves
-   (or rejects).
-5. The device, waiting on its request, receives its token and **pins the fingerprint**.
+- **Alone:** one folder, `~/Downloads` by default, from the settings file.
+- **Under Bifröst:** Bifröst decides. A client says "private" or "public". Sleipnir asks Bifröst to
+  resolve that for the calling person and writes **only** to the path it gets back:
+  `<home root>/<person>/private/` or `<home root>/<person>/public/`. Sleipnir never takes a path
+  from a client. With no choice given, it is private.
+- The path-safety rule is Bifröst's (design §8.9). `DestinationPolicy` moves there with the folders.
+- Partial `.dnm` files stay beside their final place, on the same disk, so finishing is a rename.
+- Under an NTFS home root, file names follow Windows' rules. `FileNameResolver` already removes
+  path separators; it must also refuse `< > : " | ? *` and a trailing dot or space there.
+- If Bifröst reports the home root as unavailable (the disk is not mounted), downloads wait.
+- **Fairness:** one global FIFO queue (`MaxConcurrentDownloads`, as today). Per-person fairness is a later setting.
+- When Bifröst removes a person, Sleipnir cancels their running downloads and removes their records. Files stay on disk.
 
-**Limits [my call]:** at most 5 pending requests; each expires after 5 minutes; rate-limited per
-source address; rejections and expiries are audited.
+### 7.4 Pending downloads [owner: S12]
 
-### 7.5 Where files go, fairness, and deleting users [my call]
+A download can be created in a `Pending` state that does not start until it is approved.
 
-- **Destinations:** the admin's default folder is `~/Downloads`. Each member defaults to
-  `~/Downloads/<member name>/`. The admin can change a user's allowed root. All files are owned by
-  the OS user running the daemon; members get their files through future clients (sharing, Jellyfin).
-- **Ownership** lives on the engine's `DownloadTask` (an `OwnerId` in `Sleipnir.Core`); the server
-  filters by it, and the engine's queue stays global.
-- **Fairness:** one global FIFO queue (`MaxConcurrentDownloads`, as today). Per-user fairness is a
-  later setting.
-- **Deleting a user** cancels their running downloads, removes their records and devices, and keeps
-  their files on disk. It requires confirmation and is audited.
+- **Alone:** not used.
+- **Under Bifröst, without Norns:** Sleipnir asks Bifröst's "ask the admin" facility for a plain
+  approve or reject (design §5.1). The first answer wins.
+- **Under Bifröst, with Norns:** Sleipnir gives the request to Norns, which applies its rules and
+  history and reaches the admin the same way.
+- Which downloads need approval is a setting the admin changes on the host [left to the builder:
+  by person, by size, or always].
+- An expired question leaves the download pending and tells the requester.
 
-### 7.6 Authorization rules
+### 7.5 Authorization rules
+
+Under Bifröst. Alone, the one caller may do everything.
 
 | Action | member | admin |
 |---|---|---|
-| List/see/act on downloads | own only | all (filter by user) |
-| Add a download | yes, to own folder | yes, any allowed folder |
+| List/see/act on downloads | own only | all (filter by person) |
+| Add a download | yes, to own private or public folder | yes, to any folder Bifröst resolves |
 | Download from private/loopback/link-local addresses | **no** (SSRF guard, §9) | yes |
-| Manage users, invitations, pairing requests, LAN mode, identity rotation | no | yes |
-| See/revoke devices | own | all |
+| Approve or reject a pending download | no | yes, through Bifröst |
 | Remove own finished downloads | yes | all |
+| A device of kind `browser-fallback` | view own list only | view only |
+
+A download that is not the caller's is reported as missing (404), so ids cannot be probed.
 
 ## 8. API (v1)
 
@@ -246,7 +265,8 @@ source address; rejections and expiries are audited.
 - Errors use **RFC 9457** `application/problem+json`, with a stable `code` field (e.g. `download_not_found`).
 - **Compatibility:** within v1, changes are **additive only**. Clients must ignore unknown fields
   and event types. Breaking changes mean `/api/v2`, with v1 kept for a deprecation period.
-- `GET /api/v1/server` (unauthenticated): name, version, API versions, fingerprint. Nothing else.
+- `GET /api/v1/server` (unauthenticated): name, version, API versions, mode. Nothing else.
+- Under Bifröst, clients reach the same API at Bifröst's `/x/sleipnir/api/v1/…`.
 - **OpenAPI** document served at `/api/v1/openapi.json` and checked into the repo. Builds fail if they drift.
 - `POST /downloads` accepts an `Idempotency-Key` header so a phone retrying after a dropped
   connection doesn't add the same download twice.
@@ -258,23 +278,18 @@ source address; rejections and expiries are audited.
 |---|---|
 | `GET /server` | public info (above) |
 | `POST /server/shutdown` | admin: graceful stop |
-| `GET /me` | current user and device |
-| `GET/POST /downloads` | list (own; admin: all or `?user=`), add one or several URLs with an optional destination |
+| `GET/POST /downloads` | list (own; admin: all or `?person=`), add one or several URLs, with `private` or `public` under Bifröst |
 | `GET /downloads/{id}` | one download, including segments |
 | `POST /downloads/{id}/pause` · `/resume` · `/cancel` | control |
 | `DELETE /downloads/{id}` | remove a finished download from the list (file kept) |
-| `GET/POST/PATCH/DELETE /users[/{id}]` | admin: manage users |
-| `GET /devices` · `DELETE /devices/{id}` | list, revoke |
-| `POST /pairing/invitations` | admin: create a QR invitation |
-| `POST /pairing/redeem` | device: redeem an invitation |
-| `POST /pairing/requests` · `GET /pairing/requests/{id}` | device: join request, wait for a decision |
-| `GET /pairing/requests` · `POST /pairing/requests/{id}/approve` · `/reject` | admin |
-| `GET /audit` | admin: security events |
-| `PUT /settings/lan` | admin: enable/disable the LAN listener and discovery |
-| `POST /events/ticket` | get a single-use ticket for the WebSocket (below) |
-| `GET /events` | WebSocket |
+| `POST /events/ticket` | alone: get a single-use ticket for the WebSocket (below) |
+| `GET /events` | alone: WebSocket |
 
-### 8.3 Live events (WebSocket) [owner]
+Users, devices, pairing, the audit log and the LAN setting are Bifröst's endpoints now.
+
+### 8.3 Live events [owner]
+
+**Alone,** Sleipnir serves its own WebSocket, as below. **Under Bifröst,** Sleipnir publishes the same events to Bifröst, which filters them by person and carries them to client apps and to other extensions (design §8.7). Types gain the prefix `sleipnir.`, for example `sleipnir.download.finished`, which carries the folder id, the subfolder and the file's path inside it.
 
 - **Authentication:** browsers can't set headers on a WebSocket. So the client first calls
   `POST /events/ticket` with its token and receives a **single-use, 30-second ticket**, then
@@ -282,8 +297,7 @@ source address; rejections and expiries are audited.
 - **Envelope:** `{ "v": 1, "seq": 123, "type": "download.progress", "at": "…", "data": { … } }`.
 - **Types (initial):** `download.added`, `download.changed` (status, error), `download.progress`
   (bytes, speed; **throttled** to at most a few per second per client and batched), `download.removed`,
-  `pairing.requested` and `pairing.resolved` (admins), `device.revoked` (to that device:
-  disconnect), `server.shuttingDown`.
+  `download.finished`, `server.shuttingDown`. Pairing and device events are Bifröst's.
 - Each client only receives events for downloads it may see (§7.6).
 - **Resync:** after reconnecting, a client fetches a snapshot (`GET /downloads`), then applies
   events with higher `seq`. No event replay is promised.
@@ -296,31 +310,31 @@ Threat-model checklist. Each item needs a test.
 | Threat | Mitigation |
 |---|---|
 | A website drives the loopback API (CSRF) | Bearer token in a header only, never cookies; strict CORS allowlist (none by default; extension and web-UI origins added when those clients exist) |
-| DNS rebinding against loopback | Reject requests whose `Host` isn't `localhost`, `127.0.0.1`, `[::1]` or the server's own LAN names/addresses |
-| Another LAN device uses the API | LAN listener off by default; every endpoint except `GET /server` and the pairing endpoints requires a device token |
-| Guessing invitations or flooding pairing | 256-bit single-use secrets; pending-request cap, expiry, per-source rate limits; audit |
-| Impostor server (MITM) | Fingerprint pinning; the QR carries the fingerprint; the 6-digit code binds the fingerprint for discovered servers |
-| Stolen/lost device, leaked token | Revocation (immediate; hash lookup per request); `last seen` shown to the admin |
-| Server key leak | `dnm identity rotate` → re-pair |
+| DNS rebinding against loopback | Alone: reject requests whose `Host` isn't `localhost`, `127.0.0.1` or `[::1]`. Under Bifröst there is no TCP listener to rebind to |
+| Another LAN device uses the API | Sleipnir has no LAN listener in either mode. Under Bifröst, Bifröst authenticates every device (its design §11) |
+| Leaked local token (alone) | The token is refreshed at each start. It lives in a `0600` file |
+| A client forges identity headers (under Bifröst) | Sleipnir reads them only from Bifröst's private socket. Bifröst strips and rewrites them |
 | SSRF: a member makes the server fetch internal hosts (router admin page, other services) | For non-admins, reject destinations whose **resolved** address is loopback, private (RFC 1918 / ULA), link-local, multicast or unspecified. Enforced **at connect time** in the existing `ConnectCallback`, so it covers redirects and DNS rebinding too |
-| Destination folder escape (`../`, symlinks) | Per-user allowed roots set by the admin; canonicalize and resolve symlinks; the final path must stay inside the root; file names already sanitized by `FileNameResolver` |
+| Destination folder escape (`../`, symlinks) | Under Bifröst, Sleipnir writes only to a path Bifröst resolved, and never takes one from a client. Alone, one folder from the settings file. File names sanitized by `FileNameResolver` |
 | Other OS users on the same machine | Per-user daemon; secrets `0600`/user-only ACL; loopback port alone grants nothing without a token |
 | Brute force against tokens | 256-bit tokens; global and per-source rate limiting on auth failures |
 | Resource exhaustion | Request size limits, WebSocket connection limits, existing download queue limits |
 | Secrets in logs | Tokens, invitation secrets and tickets are never logged; logs live in the state directory |
 
-An **audit log** (SQLite table, admin-readable) records pairing, approvals, rejections, revocations,
-role changes, LAN-mode changes, identity rotation and repeated auth failures [my call].
+The audit log is Bifröst's. Sleipnir logs repeated failures of the local token to its own log file.
 
 ## 10. Persistence [my call]
 
-- **SQLite** (`dnm.db` in the data directory) via **EF Core** (SQLite provider, snake_case naming)
-  with migrations [owner: SQLite by default, PostgreSQL possible later]. It holds users, devices, invitations, pairing requests, audit, and download
-  records (a SQLite implementation of the engine's `IDownloadStateStore`, keeping the
-  *PersistedBytes-only* crash-safety rule).
+- **SQLite** in the data directory, via **EF Core** (SQLite provider, snake_case naming) with
+  migrations [owner], for download records (a SQLite implementation of the engine's
+  `IDownloadStateStore`, keeping the *PersistedBytes-only* crash-safety rule). Users, devices,
+  invitations and the audit log are not Sleipnir's data any more.
+- **Status (step 3a, 2026-11-13):** only users and devices are in SQLite so far, and those tables leave with the extraction to Bifröst; download records stay in the JSON
+  store, which now also saves each download's `OwnerId`. Moving them into SQLite is a later step.
 - On first start, existing JSON download records are imported (owner = admin), and the JSON folder
   is left untouched as a backup.
-- SQLite also runs on Android, so the phone app can reuse the same store.
+- SQLite also runs on Android, so the Bifröst client app can reuse the same store when it runs the engine.
+- Under Bifröst, Sleipnir's data folder is the one Bifröst gives it, on the system disk. Only people's files go under the home root.
 
 ## 11. Phase 3: the TUI as a client
 
@@ -328,9 +342,8 @@ role changes, LAN-mode changes, identity rotation and repeated auth failures [my
   state), so `TuiController` and `TuiRenderer` keep working with minimal change.
 - `dnm` starts the daemon if needed, waits for `daemon.json`, connects with the local admin token.
 - Closing the TUI leaves downloads running. The TUI shows "reconnecting…" if the daemon restarts.
-- Admin additions: an owner column/filter for downloads; screens to create invitations (QR rendered
-  in the terminal), approve requests (showing the 6-digit code), manage users and devices, and
-  toggle LAN mode. Same look as today.
+- The TUI is the client of Sleipnir alone. It has no screens for people, devices or pairing: those
+  are Bifröst's, on the host and in its client app. Same look as today.
 - There is no in-process mode any more: one code path [my call].
 
 ## 11a. Keeping the app working during Phase 2 [my call]
@@ -344,26 +357,36 @@ pure refactor with all existing tests green.
 
 - Engine: the existing 113 tests keep passing unchanged (moved projects only).
 - Server: in-memory API tests (`WebApplicationFactory`) for every endpoint and authorization rule.
-- Security: a test per row in §9 (Host header, CORS, token, revoked device, SSRF incl. redirect
-  and rebinding, path escape, pairing limits, SAS mismatch under MITM).
+- Security: a test per row in §9 (Host header, CORS, local token, forged identity headers, SSRF incl.
+  redirect and rebinding, path escape). Pairing and pinning tests are Bifröst's.
+- Both front doors: every endpoint and authorization rule is tested alone and under a fake Bifröst.
 - WebSocket: tickets, filtering by user, throttling, resync.
 - Contract: OpenAPI document generated and diffed in tests.
-- End to end: a real `dnm daemon` process with the TUI's client against loopback HTTP, plus a LAN
-  HTTPS pinning test.
+- End to end: a real daemon process with the TUI's client against loopback HTTP.
 
 ## 13. Left to the builder
 
 - Exact JSON shapes, endpoint names within §8's outline, SQL schema, migration tooling.
-- The SAS construction (meeting §7.4's requirement), the mDNS library or OS integration.
+- How Sleipnir detects its mode, and how the pending rule is configured.
 - Logging library and format; port fallback details; QR rendering in the terminal.
 - Order of work within Phase 2, as long as each step keeps the app working and the tests green.
 
 ## 14. Calls made by the designer (for the owner to check)
 
-ASP.NET Core accepted (+20–30 MB) · consistency rules from Heimdall (above) · ports 7766 (loopback) / 7767 (LAN) · ECDSA P-256 identity,
-SPKI fingerprint · opaque random tokens, stored hashed · WebSocket single-use tickets ·
-invitations expire after 10 minutes, join requests after 5 minutes, at most 5 pending · `dnm://` link scheme · multiple
-admins allowed · member folders `~/Downloads/<name>/` · ownership on the engine's task, one global queue ·
-deleting a user keeps files · in-process TUI kept until Phase 3 · SQLite for all server state · JSON state imported, old files kept · Windows/macOS
-service installers later · no in-process mode after Phase 3 · audit log · per-user allowed
-destination roots · non-admin SSRF guard.
+ASP.NET Core accepted (+20–30 MB) · consistency rules from Heimdall (above) · port 7766 (loopback) ·
+WebSocket single-use tickets · ownership on the engine's task, one global queue · removing a person keeps
+files · in-process TUI kept until Phase 3 · JSON state imported, old files kept · Windows/macOS service
+installers later · no in-process mode after Phase 3 · non-admin SSRF guard · private when no choice is given.
+
+Moved to Bifröst's design with the same values: ECDSA P-256 identity and SPKI fingerprint · opaque
+random tokens, stored hashed · invitations expire after 10 minutes, join requests after 5 minutes, at
+most 5 pending · the audit log.
+
+## 15. What this revision does to the plans
+
+- `plans/2026-11-13-library-split.md` and `plans/2026-11-13-daemon-skeleton.md`: unchanged. Both are Sleipnir alone.
+- `plans/2026-11-13-identity-and-access.md` (step 3a, built): its users, devices and tokens become
+  Bifröst's. Do not build further on them inside Sleipnir. Ownership (`OwnerId`) and the folder check stay useful.
+- **Next for Sleipnir:** the second front door (Bifröst's socket and identity headers), the pending
+  state, `sleipnir.download.finished` with the folder, and the rename of the command and data folder.
+- **Not next for Sleipnir:** the LAN listener, the home key, pairing and discovery. Those are steps 1 to 3 of Bifröst's order of work.

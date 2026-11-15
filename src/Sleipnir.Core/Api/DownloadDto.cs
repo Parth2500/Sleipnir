@@ -16,14 +16,16 @@ public sealed record DownloadDto(
     long BytesDownloaded,
     string? ErrorMessage,
     DateTime CreatedAt,
-    SegmentDto[]? Segments)
+    SegmentDto[]? Segments,
+    Guid? OwnerId = null)
 {
     public static DownloadDto From(DownloadTask task, bool includeSegments = false) => new(
         task.Id, task.Url, task.Filename, task.DestinationPath, task.Status, task.TotalBytes, task.IsSizeKnown,
         task.BytesDownloaded, task.ErrorMessage, task.CreatedAt,
         includeSegments
             ? task.Segments.Select(s => new SegmentDto(s.Index, s.StartOffset, s.EndOffset, s.BytesDownloaded)).ToArray()
-            : null);
+            : null,
+        task.OwnerId);
 }
 
 /// <param name="Destination">Folder to save into; the server's default folder when omitted.</param>

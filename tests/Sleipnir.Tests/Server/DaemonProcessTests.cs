@@ -204,4 +204,37 @@ public class DaemonProcessTests
 
         Assert.False(File.Exists(Path.Combine(home.RuntimeDir, "daemon.json")));
     }
+
+    [Fact]
+    public async Task Users_survive_a_restart_the_database_is_private_and_a_regenerated_token_replaces_the_old_one()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var home = new DnmHome();
+        Guid firstUser;
+        string firstToken;
+        using (var first = home.Start("daemon"))
+        {
+            var info = await home.WaitForDaemonAsync(first);
+            firstToken = home.Token;
+            using var admin = ClientFor(info.Port, firstToken);
+            var me = System.Text.Json.JsonDocument.Parse(await admin.GetStringAsync("/api/v1/me")).RootElement;
+            Assert.Equal("admin", me.GetProperty("role").GetString());
+            firstUser = me.GetProperty("userId").GetGuid();
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite,
+                File.GetUnixFileMode(Path.Combine(home.Root, "data", "dnm", "dnm.db")));
+            await admin.PostAsync("/api/v1/server/shutdown", null);
+            await first.WaitForExitAsync(10);
+        }
+
+        File.Delete(Path.Combine(home.RuntimeDir, "admin.token")); // the token file is regenerated on the next start
+        using var second = home.Start("daemon");
+        var next = await home.WaitForDaemonAsync(second);
+
+        using var old = ClientFor(next.Port, firstToken);
+        using var fresh = ClientFor(next.Port, home.Token);
+        Assert.NotEqual(firstToken, home.Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await old.GetAsync("/api/v1/me")).StatusCode);
+        var again = System.Text.Json.JsonDocument.Parse(await fresh.GetStringAsync("/api/v1/me")).RootElement;
+        Assert.Equal(firstUser, again.GetProperty("userId").GetGuid());
+    }
 }

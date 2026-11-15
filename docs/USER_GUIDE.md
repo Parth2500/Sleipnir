@@ -94,6 +94,34 @@ Endpoints: `GET /server`, `POST /server/shutdown`, `GET/POST /downloads`, `GET/D
 Keep the token private: anyone who has it controls your downloads. Only your own machine can reach the
 API; sharing it on your home network, users and phone pairing are planned.
 
+## Users and devices
+
+The first time the daemon runs it creates an **admin** (named after your OS user) and a built-in
+device called **This computer**, whose token is `admin.token`. More people can be added:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"displayName":"Sam"}' http://localhost:$PORT/api/v1/users          # a member
+curl -H "Authorization: Bearer $TOKEN" http://localhost:$PORT/api/v1/users      # list (admin)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:$PORT/api/v1/devices
+curl -H "Authorization: Bearer $TOKEN" -X DELETE "http://localhost:$PORT/api/v1/users/<id>?confirm=true"
+```
+
+- **Members** see and control only their own downloads, and save into `~/Downloads/<their name>/`
+  (or the folder the admin sets with `allowedRoot`). Someone else's download looks like a missing one.
+  A member can't use `..`, a look-alike folder or a symlink to get out of their folder.
+- **Admins** see everything (`GET /downloads?user=<id>` filters), manage users, and can save anywhere.
+- There is always at least one admin: the last one can't be demoted or deleted.
+- **Deleting a user** needs `?confirm=true`, cancels their downloads and removes their devices; the
+  files already on disk stay.
+- Each device has its own secret token (only a hash is stored); revoking a device (`DELETE /devices/<id>`)
+  stops it on its very next request. "This computer" can't be revoked. If you delete `admin.token`, a new
+  one is created at the next start and the old one stops working.
+- Users and devices live in `~/.local/share/dnm/dnm.db` (readable only by you).
+
+Phones and other computers join by pairing (a QR code or a short code); that arrives with the
+home-network listener in a later release.
+
 ## The screen
 
 Sleipnir takes over the terminal (like `htop` or `less`) and gives it back when you quit.

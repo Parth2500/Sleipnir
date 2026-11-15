@@ -29,7 +29,8 @@ one file. It can pause, resume (even after a restart), cancel, queue, and retry 
 ## Background service
 
 `dnm daemon` runs the download engine without the screen, with a token-protected local REST API;
-`dnm service install` keeps it running as a systemd user service. See the
+`dnm service install` keeps it running as a systemd user service. It has users and roles: an admin and
+members who only see their own downloads. See the
 [User Guide](docs/USER_GUIDE.md#running-as-a-background-service).
 
 ## Quick start

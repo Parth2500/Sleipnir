@@ -27,11 +27,12 @@ public sealed class StubDownloadService : IDownloadService
         return task;
     }
 
-    public Task<Guid> AddDownloadAsync(string url, string outputDirectory)
+    public Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null)
     {
         Calls.Add($"add {url} -> {outputDirectory}");
         var task = Seed(new Uri(url).Segments.Last(), DownloadStatus.Queued);
         task.Url = url;
+        task.OwnerId = ownerId;
         return Task.FromResult(task.Id);
     }
 

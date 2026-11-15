@@ -15,6 +15,7 @@ public sealed record DownloadRecord(
     DownloadStatus Status,
     DateTime CreatedAt,
     string? ErrorMessage,
-    IReadOnlyList<SegmentRecord> Segments);
+    IReadOnlyList<SegmentRecord> Segments,
+    Guid? OwnerId = null);
 
 public sealed record SegmentRecord(int Index, long StartOffset, long EndOffset, long BytesDownloaded, bool IsOpenEnded);

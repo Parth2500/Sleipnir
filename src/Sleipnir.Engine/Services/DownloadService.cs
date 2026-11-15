@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Sleipnir.Core.Interfaces;
 using Sleipnir.Core.Models;
 
@@ -45,7 +45,7 @@ public class DownloadService : IDownloadService
         public volatile StopReason Reason = StopReason.None;
     }
 
-    public async Task<Guid> AddDownloadAsync(string url, string outputDirectory)
+    public async Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null)
     {
         var uri = new Uri(url);
         var fileName = FileNameResolver.FromUrl(uri);
@@ -57,6 +57,7 @@ public class DownloadService : IDownloadService
             task = new DownloadTask
             {
                 Url = url,
+                OwnerId = ownerId,
                 DestinationPath = destination,
                 Filename = Path.GetFileName(destination),
                 Status = DownloadStatus.Queued,
@@ -522,7 +523,8 @@ public class DownloadService : IDownloadService
         task.ErrorMessage,
         task.Segments
             .Select(s => new SegmentRecord(s.Index, s.StartOffset, s.EndOffset, s.PersistedBytes, s.IsOpenEnded))
-            .ToList());
+            .ToList(),
+        task.OwnerId);
 
     private static DownloadTask FromRecord(DownloadRecord record)
     {
@@ -532,6 +534,7 @@ public class DownloadService : IDownloadService
         return new DownloadTask
         {
             Id = record.Id,
+            OwnerId = record.OwnerId,
             Url = record.Url,
             DestinationPath = record.DestinationPath,
             Filename = record.Filename,

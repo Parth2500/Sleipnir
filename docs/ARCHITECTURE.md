@@ -72,6 +72,24 @@ flowchart LR
 - **Shutdown:** `POST /api/v1/server/shutdown`, SIGTERM, SIGINT or SIGHUP stop the host, then call
   `ShutdownAsync` so progress is saved and downloads resume on the next start.
 
+## Identity and access
+
+`IdentityService` (in `Sleipnir.Server`) owns users and devices in SQLite (`dnm.db`, EF Core with snake_case
+names and migrations that run at start-up). Every request goes through the same pipeline: error mapping →
+`Host` allowlist → bearer token → endpoint.
+
+- **Authentication:** the token is hashed (SHA-256) and looked up; revoked devices and deleted users
+  fail on the very next request. The local `admin.token` is the token of the built-in "This computer"
+  device, refreshed at each start. `LastSeenAt` is updated at most once a minute.
+- **Authorization:** `Principal` (user, role, device) is attached to the request. Admin-only endpoints return
+  403; a download that isn't yours is reported as missing (404) so ids can't be probed.
+- **Ownership** is `DownloadTask.OwnerId` in Core, saved in the JSON download records (older records have no
+  owner and belong to the admin). The queue stays global.
+- **Folders:** `DestinationPolicy` resolves a member's requested folder through symlinks and requires it to lie
+  inside their root; the resolved path is what the engine writes to. Any `..` is refused.
+- **Serialization:** all database access goes through one gate (one daemon per user), which also makes
+  "keep at least one admin" race-free.
+
 ## Download lifecycle
 
 ```mermaid
