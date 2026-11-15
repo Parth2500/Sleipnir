@@ -14,6 +14,6 @@ internal static class ServerEndpoints
         {
             requestShutdown();
             return Results.Accepted();
-        });
+        }).AddEndpointFilter(RequireAdmin.Filter); // spec §8.2: admin only
     }
 }

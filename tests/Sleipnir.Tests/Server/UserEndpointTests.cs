@@ -70,6 +70,19 @@ public class UserEndpointTests
     }
 
     [Fact]
+    public async Task A_member_cannot_shut_the_daemon_down()
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+        var (_, token) = await daemon.AddUserAsync("bob");
+
+        var response = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Post, "/api/v1/server/shutdown", token: token));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("forbidden", await Code(response));
+        await Assert.ThrowsAsync<TimeoutException>(() => daemon.Host.WaitForShutdownAsync().WaitAsync(TimeSpan.FromMilliseconds(300)));
+    }
+
+    [Fact]
     public async Task Users_can_be_renamed_promoted_and_given_a_folder()
     {
         await using var daemon = await DaemonFixture.StartAsync();

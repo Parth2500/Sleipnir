@@ -78,7 +78,8 @@ tar -czf dnm-linux-x64.tar.gz dnm-linux-x64 && sha256sum dnm-linux-x64.tar.gz > 
 │   │   ├── Interfaces/        IDownloadService, INetworkClient, IFileStorage, IDownloadStateStore,
 │   │   │                      RangeNotSupportedException, ServerBusyException
 │   │   └── Models/            DownloadTask, DownloadSegment, DownloadStatus, RemoteFileInfo, DownloadRecord
-│   ├── Sleipnir.Server/       the local REST API (ASP.NET Core): DaemonHost, auth, instance lock, app paths
+│   ├── Sleipnir.Server/       the local REST API (ASP.NET Core): DaemonHost, endpoints, identity (users, devices,
+│   │                          destination policy), SQLite store + migrations, instance lock, app paths
 │   ├── Sleipnir.Engine/       the download engine; no console and no web framework
 │   │   ├── Services/          DownloadService (queue, runs, retry, persistence), SegmentDownloader,
 │   │   │                      FileNameResolver, DownloadOptions
@@ -113,6 +114,10 @@ For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | `Tui/TuiRendererTests` | Empty state, rows, speed/ETA, header, escaping, details, unknown size, waiting segments, suggestions, help, toasts, narrow terminals, scrolling, fits the terminal height |
 | `ArchitectureTests` | Core has only framework references; Engine has no console/web references; state folder unchanged |
 | `Server/AppPathsTests`, `SecretTests`, `InstanceTests` | Per-OS folders, `0600` secret files and the admin token, single-instance lock, `daemon.json` |
+| `OwnershipTests` | The owner of a download is recorded, survives restarts, and old records load as ownerless |
+| `Server/DatabaseTests`, `IdentityServiceTests` | SQLite schema and constraints, hashed tokens, last-admin rule (also under concurrency), name rules |
+| `Server/MeEndpointTests`, `UserEndpointTests` | Per-device authentication, revocation, user/device management and admin-only rules |
+| `Server/DestinationPolicyTests`, `DownloadAccessTests` | Folder escapes (`..`, siblings, symlinks), members see only their own downloads |
 | `Server/DaemonHostTests` | Token and Host checks, no CORS, throttling, port fallback (real Kestrel on loopback) |
 | `Server/DownloadEndpointTests` | Paging, validation, body limit, idempotency keys, control verbs, auth on every route |
 | `Server/DaemonProcessTests` | Real `dnm daemon` processes: start, second instance, TUI/daemon lock, shutdown, SIGTERM, crash recovery |
