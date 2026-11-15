@@ -42,15 +42,24 @@ public sealed class FakeNetworkClient : INetworkClient
 
     public byte[] Data => _data;
 
-    public Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default)
+    /// <summary>The <c>publicOnly</c> flag of every probe and stream request, in order.</summary>
+    public ConcurrentQueue<bool> PublicOnly { get; } = new();
+
+    /// <summary>When set, a public-only request throws this instead of answering.</summary>
+    public bool RefusePublicOnly { get; init; }
+
+    public Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default, bool publicOnly = false)
     {
+        PublicOnly.Enqueue(publicOnly);
+        if (publicOnly && RefusePublicOnly) throw new DestinationNotPublicException("example.test");
         OnProbe?.Invoke(Interlocked.Increment(ref _probeCount) - 1);
         return Task.FromResult(new RemoteFileInfo(ReportSize ? _data.Length : null, SupportsRanges));
     }
 
-    public Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken cancellationToken = default)
+    public Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken cancellationToken = default, bool publicOnly = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        PublicOnly.Enqueue(publicOnly);
         var n = Interlocked.Increment(ref _requestCount) - 1;
         Requests.Enqueue((from, to));
 

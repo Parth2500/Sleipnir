@@ -20,6 +20,42 @@ public class HttpNetworkClientTests
     }
 
     [Fact]
+    public async Task A_public_only_request_to_loopback_fails_before_connecting()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var client = new HttpNetworkClient();
+
+        var error = await Assert.ThrowsAsync<DestinationNotPublicException>(() =>
+            client.GetFileInfoAsync($"http://127.0.0.1:{port}/file.bin", publicOnly: true));
+
+        Assert.Contains("127.0.0.1", error.Message, StringComparison.Ordinal);
+        Assert.False(listener.Pending(), "nothing may have connected");
+    }
+
+    [Fact]
+    public async Task Without_the_flag_the_same_request_connects()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var client = new HttpNetworkClient(TimeSpan.FromMilliseconds(500));
+
+        await Assert.ThrowsAnyAsync<Exception>(() => client.GetFileInfoAsync($"http://127.0.0.1:{port}/file.bin"));
+
+        Assert.True(listener.Pending(), "the unrestricted request connects (and then times out)");
+    }
+
+    [Fact]
+    public async Task A_custom_client_without_a_guarded_one_refuses_public_only_requests()
+    {
+        var client = Client(_ => Body(HttpStatusCode.OK, 10));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetFileInfoAsync(Url, publicOnly: true));
+    }
+
+    [Fact]
     public async Task Range_request_answered_with_200_is_rejected_instead_of_returning_the_wrong_bytes()
     {
         var client = Client(_ => Body(HttpStatusCode.OK, 1000));

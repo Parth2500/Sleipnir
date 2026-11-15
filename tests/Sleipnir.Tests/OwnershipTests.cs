@@ -73,4 +73,48 @@ public class OwnershipTests
         Assert.Null(loaded.OwnerId);
         Assert.Equal(42, loaded.Segments.Single().BytesDownloaded);
     }
+
+    [Fact]
+    public async Task A_public_only_download_asks_the_network_for_public_addresses_every_time()
+    {
+        using var dir = new TempDir();
+        var network = new FakeNetworkClient(TestHelpers.RandomBytes(5_000));
+        var service = new DownloadService(network, new LocalFileStorage(), Options(), new JsonDownloadStateStore(dir.File("state")));
+
+        var id = await service.AddDownloadAsync(Url, dir.Path, Guid.NewGuid(), publicAddressesOnly: true);
+        Assert.True(await TestHelpers.WaitUntil(() => service.GetDownload(id)!.Status == DownloadStatus.Completed));
+
+        Assert.True(service.GetDownload(id)!.PublicAddressesOnly);
+        Assert.NotEmpty(network.PublicOnly);
+        Assert.All(network.PublicOnly, Assert.True);
+    }
+
+    [Fact]
+    public async Task A_destination_that_is_not_public_fails_at_once_without_retries()
+    {
+        using var dir = new TempDir();
+        var network = new FakeNetworkClient(TestHelpers.RandomBytes(5_000)) { RefusePublicOnly = true };
+        var service = new DownloadService(network, new LocalFileStorage(), Options(), new JsonDownloadStateStore(dir.File("state")));
+
+        var id = await service.AddDownloadAsync(Url, dir.Path, Guid.NewGuid(), publicAddressesOnly: true);
+        Assert.True(await TestHelpers.WaitUntil(() => service.GetDownload(id)!.Status == DownloadStatus.Failed));
+
+        Assert.Single(network.PublicOnly);
+        Assert.Contains("not a public address", service.GetDownload(id)!.ErrorMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_flagged_task_survives_a_restart_still_public_only()
+    {
+        using var dir = new TempDir();
+        var store = new JsonDownloadStateStore(dir.File("state"));
+        var first = Service(store);
+        var id = await first.AddDownloadAsync(Url, dir.Path, Guid.NewGuid(), publicAddressesOnly: true);
+        Assert.True(await TestHelpers.WaitUntil(() => first.GetDownload(id)!.Status == DownloadStatus.Completed));
+
+        var second = Service(store);
+        await second.RestoreAsync();
+
+        Assert.True(second.GetDownload(id)!.PublicAddressesOnly);
+    }
 }

@@ -52,7 +52,8 @@ public class SegmentDownloader
         string destinationPath,
         DownloadSegment segment,
         CancellationToken cancellationToken = default,
-        bool useRange = true)
+        bool useRange = true,
+        bool publicOnly = false)
     {
         var persisted = Math.Min(segment.BytesDownloaded, segment.PersistedBytes);
         segment.PersistedBytes = persisted;
@@ -90,7 +91,7 @@ public class SegmentDownloader
         {
             long? from = useRange ? segment.StartOffset + persisted : null;
             long? to = useRange && !segment.IsOpenEnded ? segment.EndOffset : null;
-            await using var stream = await _networkClient.GetStreamAsync(url, from, to, cancellationToken);
+            await using var stream = await _networkClient.GetStreamAsync(url, from, to, cancellationToken, publicOnly);
 
             var chunk = new byte[ReadChunkSize];
             while (segment.IsOpenEnded || persisted + pending.Length < segment.TotalBytes)

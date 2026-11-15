@@ -1,3 +1,4 @@
+using Sleipnir.Core.Interfaces;
 using System.Net;
 using System.Net.Sockets;
 
@@ -127,11 +128,18 @@ public static class HappyEyeballs
     }
 
     /// <summary>Connects a TCP socket to <paramref name="host"/>:<paramref name="port"/> using Happy Eyeballs.</summary>
-    public static async Task<Socket> ConnectSocketAsync(string host, int port, CancellationToken cancellationToken)
+    /// <param name="allowed">When set, only addresses it accepts are dialled; none left throws <see cref="DestinationNotPublicException"/>.</param>
+    public static async Task<Socket> ConnectSocketAsync(string host, int port, CancellationToken cancellationToken,
+        Func<IPAddress, bool>? allowed = null)
     {
-        var addresses = IPAddress.TryParse(host, out var literal)
+        IEnumerable<IPAddress> addresses = IPAddress.TryParse(host, out var literal)
             ? new[] { literal }
             : await Dns.GetHostAddressesAsync(host, cancellationToken);
+        if (allowed is not null)
+        {
+            addresses = addresses.Where(allowed).ToArray();
+            if (!addresses.Any()) throw new DestinationNotPublicException(host);
+        }
 
         return await ConnectAsync(Interleave(addresses), async (address, ct) =>
         {

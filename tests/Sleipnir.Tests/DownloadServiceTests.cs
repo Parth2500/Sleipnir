@@ -283,15 +283,15 @@ public class DownloadServiceTests
     /// would via HttpNetworkClient (which reports that as <see cref="Core.Interfaces.RangeNotSupportedException"/>).</summary>
     private sealed class RangeIgnoringNetworkClient(FakeNetworkClient inner) : Core.Interfaces.INetworkClient
     {
-        public Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken ct = default) => inner.GetFileInfoAsync(url, ct);
+        public Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken ct = default, bool publicOnly = false) => inner.GetFileInfoAsync(url, ct, publicOnly);
 
-        public Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken ct = default)
+        public Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken ct = default, bool publicOnly = false)
         {
             if ((from ?? 0) != 0 || (to.HasValue && to != inner.Data.Length - 1))
             {
                 throw new Core.Interfaces.RangeNotSupportedException(url);
             }
-            return inner.GetStreamAsync(url, from, to, ct);
+            return inner.GetStreamAsync(url, from, to, ct, publicOnly);
         }
     }
 }

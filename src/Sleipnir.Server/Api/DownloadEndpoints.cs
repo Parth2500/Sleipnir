@@ -114,7 +114,9 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
 
         var key = request.Headers["Idempotency-Key"].ToString();
         if (key.Length > MaxKeyLength) return Problem.Create(400, "invalid_request", "Idempotency-Key is too long.");
-        if (key.Length == 0) return Results.Json(await AddAll(urls, folder, me.PersonId), statusCode: 201);
+        // Under Bifröst a member may not make the home machine fetch from the home network (spec §9).
+        var publicOnly = perPersonRoot is not null && !me.IsAdmin;
+        if (key.Length == 0) return Results.Json(await AddAll(urls, folder, me.PersonId, publicOnly), statusCode: 201);
 
         var hash = IdempotencyCache<PageDto<DownloadDto>>.Hash(body);
         key = $"{me.PersonId}:{key}"; // keys are private to each person
@@ -129,7 +131,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
                     return Problem.Create(422, "idempotency_key_reused", "That Idempotency-Key was used for a different request.");
             }
 
-            var page = await AddAll(urls, folder, me.PersonId);
+            var page = await AddAll(urls, folder, me.PersonId, publicOnly);
             _idempotency.Store(key, hash, page);
             return Results.Json(page, statusCode: 201);
         }
@@ -139,12 +141,12 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
         }
     }
 
-    private async Task<PageDto<DownloadDto>> AddAll(string[] urls, string folder, Guid? ownerId)
+    private async Task<PageDto<DownloadDto>> AddAll(string[] urls, string folder, Guid? ownerId, bool publicOnly)
     {
         var added = new List<DownloadDto>();
         foreach (var url in urls)
         {
-            var id = await downloads.AddDownloadAsync(url, folder, ownerId);
+            var id = await downloads.AddDownloadAsync(url, folder, ownerId, publicOnly);
             if (downloads.GetDownload(id) is { } task) added.Add(DownloadDto.From(task));
         }
         return new PageDto<DownloadDto>(added.ToArray(), null);

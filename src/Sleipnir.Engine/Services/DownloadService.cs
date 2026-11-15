@@ -45,7 +45,7 @@ public class DownloadService : IDownloadService
         public volatile StopReason Reason = StopReason.None;
     }
 
-    public async Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null)
+    public async Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null, bool publicAddressesOnly = false)
     {
         var uri = new Uri(url);
         var fileName = FileNameResolver.FromUrl(uri);
@@ -58,6 +58,7 @@ public class DownloadService : IDownloadService
             {
                 Url = url,
                 OwnerId = ownerId,
+                PublicAddressesOnly = publicAddressesOnly,
                 DestinationPath = destination,
                 Filename = Path.GetFileName(destination),
                 Status = DownloadStatus.Queued,
@@ -264,7 +265,7 @@ public class DownloadService : IDownloadService
             // 1. Probe the server once per download.
             if (task.Segments.Count == 0 && task.TotalBytes == 0 && task.IsSizeKnown)
             {
-                var info = await ProbeWithRetriesAsync(task.Url, token);
+                var info = await ProbeWithRetriesAsync(task.Url, task.PublicAddressesOnly, token);
                 task.IsSizeKnown = info.Size.HasValue;
                 task.TotalBytes = info.Size ?? 0;
                 // Without a size we cannot split the file, so it is always a single stream.
@@ -393,7 +394,7 @@ public class DownloadService : IDownloadService
                     }
                 }
 
-                await downloader.DownloadSegmentAsync(task.Url, task.TempFilePath, segment, token, task.SupportsRanges);
+                await downloader.DownloadSegmentAsync(task.Url, task.TempFilePath, segment, token, task.SupportsRanges, task.PublicAddressesOnly);
                 return;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -413,14 +414,14 @@ public class DownloadService : IDownloadService
         }
     }
 
-    private async Task<RemoteFileInfo> ProbeWithRetriesAsync(string url, CancellationToken token)
+    private async Task<RemoteFileInfo> ProbeWithRetriesAsync(string url, bool publicOnly, CancellationToken token)
     {
         var retries = new RetryBudget();
         while (true)
         {
             try
             {
-                return await _networkClient.GetFileInfoAsync(url, token);
+                return await _networkClient.GetFileInfoAsync(url, token, publicOnly);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -450,6 +451,8 @@ public class DownloadService : IDownloadService
         {
             case RangeNotSupportedException:
                 return null; // handled by switching to single-stream mode
+            case DestinationNotPublicException:
+                return null; // the address won't become public by asking again
             case ServerBusyException busy when budget.BusyAttempts < _options.MaxBusyRetries:
                 budget.BusyAttempts++;
                 return BusyDelay(busy, budget.BusyAttempts);
@@ -524,7 +527,8 @@ public class DownloadService : IDownloadService
         task.Segments
             .Select(s => new SegmentRecord(s.Index, s.StartOffset, s.EndOffset, s.PersistedBytes, s.IsOpenEnded))
             .ToList(),
-        task.OwnerId);
+        task.OwnerId,
+        task.PublicAddressesOnly);
 
     private static DownloadTask FromRecord(DownloadRecord record)
     {
@@ -535,6 +539,7 @@ public class DownloadService : IDownloadService
         {
             Id = record.Id,
             OwnerId = record.OwnerId,
+            PublicAddressesOnly = record.PublicAddressesOnly,
             Url = record.Url,
             DestinationPath = record.DestinationPath,
             Filename = record.Filename,

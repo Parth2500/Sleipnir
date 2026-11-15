@@ -8,6 +8,9 @@ public class DownloadTask
     /// <summary>The user who added the download; null for downloads that predate users (they belong to the admin).</summary>
     public Guid? OwnerId { get; set; }
 
+    /// <summary>Every connection of this download must go to a public address (a member's, under Bifröst).</summary>
+    public bool PublicAddressesOnly { get; set; }
+
     /// <summary>Final path of the file. The in-progress data lives at <c>DestinationPath + ".dnm"</c>.</summary>
     public string DestinationPath { get; set; } = string.Empty;
 

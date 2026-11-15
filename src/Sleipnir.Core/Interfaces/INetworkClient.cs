@@ -7,6 +7,9 @@ namespace Sleipnir.Core.Interfaces;
 
 public interface INetworkClient
 {
-    Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default);
-    Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken cancellationToken = default);
+    /// <param name="publicOnly">Connect to public addresses only, or throw <see cref="DestinationNotPublicException"/>.</param>
+    Task<RemoteFileInfo> GetFileInfoAsync(string url, CancellationToken cancellationToken = default, bool publicOnly = false);
+
+    /// <param name="publicOnly">Connect to public addresses only, or throw <see cref="DestinationNotPublicException"/>.</param>
+    Task<Stream> GetStreamAsync(string url, long? from = null, long? to = null, CancellationToken cancellationToken = default, bool publicOnly = false);
 }

@@ -210,4 +210,16 @@ public class ExtensionDoorTests
 
         Assert.Equal(HttpStatusCode.OK, (await ext.Http.SendAsync(request)).StatusCode);
     }
+
+    [Fact]
+    public async Task A_members_download_is_public_only_and_an_admins_is_not()
+    {
+        await using var ext = await StartAsync();
+
+        await ext.Send(HttpMethod.Post, "/api/v1/downloads", Bob, body: Add("http://example.test/member.zip"));
+        await ext.Send(HttpMethod.Post, "/api/v1/downloads", Alice, "admin", body: Add("http://example.test/admin.zip"));
+
+        Assert.True(ext.Downloads.Tasks.Single(t => t.Filename == "member.zip").PublicAddressesOnly);
+        Assert.False(ext.Downloads.Tasks.Single(t => t.Filename == "admin.zip").PublicAddressesOnly);
+    }
 }
