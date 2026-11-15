@@ -7,7 +7,7 @@ using Sleipnir.Server.Security;
 
 namespace Sleipnir;
 
-/// <summary><c>dnm daemon</c>: the download engine as a background process with a local API.</summary>
+/// <summary><c>sleipnir daemon</c>: the download engine as a background process with a local API.</summary>
 public static class DaemonCommand
 {
     /// <summary>Exit code for "Sleipnir could not start" (sysexits EX_IOERR); 1 means another instance is running.</summary>
@@ -49,7 +49,7 @@ public static class DaemonCommand
         using var sigHup = PosixSignalRegistration.Create(PosixSignal.SIGHUP, OnSignal);
 
         var token = LocalAdminToken.LoadOrCreate(paths.Runtime);
-        using var database = Database.OpenFile(Path.Combine(paths.Data, "dnm.db"));
+        using var database = Database.OpenFile(Path.Combine(paths.Data, "sleipnir.db"));
         await Database.MigrateAsync(database);
         var identity = new IdentityService(database);
         await identity.EnsureLocalAdminAsync(Environment.UserName, token);

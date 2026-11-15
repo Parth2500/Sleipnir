@@ -28,14 +28,14 @@ public class ArchitectureTests
         var references = engine.GetReferencedAssemblies().Select(r => r.Name!).ToList();
         Assert.Contains("Sleipnir.Core", references);
         Assert.DoesNotContain(references,
-            n => n.StartsWith("Spectre") || n.StartsWith("Microsoft.AspNetCore") || n == "dnm");
+            n => n.StartsWith("Spectre") || n.StartsWith("Microsoft.AspNetCore") || n == "sleipnir");
     }
 
     [Fact]
-    public void Default_state_directory_is_unchanged()
+    public void Default_state_directory_is_named_sleipnir()
     {
         string dir = JsonDownloadStateStore.DefaultDirectory().Replace('\\', '/');
 
-        Assert.EndsWith("dnm/downloads", dir);
+        Assert.EndsWith("sleipnir/downloads", dir);
     }
 }

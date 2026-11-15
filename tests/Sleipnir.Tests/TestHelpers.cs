@@ -25,7 +25,7 @@ public static class TestHelpers
 /// <summary>A temporary directory deleted when the test finishes.</summary>
 public sealed class TempDir : IDisposable
 {
-    public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dnm-tests-" + Guid.NewGuid().ToString("N"));
+    public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sleipnir-tests-" + Guid.NewGuid().ToString("N"));
 
     public TempDir() => Directory.CreateDirectory(Path);
 

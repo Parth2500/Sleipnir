@@ -29,4 +29,4 @@ RUN dotnet publish "./Sleipnir.App.csproj" -c $BUILD_CONFIGURATION -o /app/publi
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "dnm.dll"]
+ENTRYPOINT ["dotnet", "sleipnir.dll"]

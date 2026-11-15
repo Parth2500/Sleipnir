@@ -4,7 +4,7 @@ public static class SystemdUnit
 {
     public const string Name = "sleipnir.service";
 
-    /// <summary>The systemd user unit that keeps <c>dnm daemon</c> running.</summary>
+    /// <summary>The systemd user unit that keeps <c>sleipnir daemon</c> running.</summary>
     public static string Render(string executablePath)
     {
         // systemd expands % and $ inside ExecStart; double them so the path is taken literally.

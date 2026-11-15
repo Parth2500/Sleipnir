@@ -16,9 +16,9 @@ public class AppPathsTests
     {
         var paths = AppPaths.Resolve(PlatformKind.Linux, Env(), "/home/u");
 
-        Assert.Equal("/home/u/.config/dnm", paths.Settings);
-        Assert.Equal("/home/u/.local/share/dnm", paths.Data);
-        Assert.Equal("/home/u/.local/state/dnm", paths.Runtime);
+        Assert.Equal("/home/u/.config/sleipnir", paths.Settings);
+        Assert.Equal("/home/u/.local/share/sleipnir", paths.Data);
+        Assert.Equal("/home/u/.local/state/sleipnir", paths.Runtime);
     }
 
     [Fact]
@@ -27,9 +27,9 @@ public class AppPathsTests
         var paths = AppPaths.Resolve(PlatformKind.Linux,
             Env(("XDG_CONFIG_HOME", "/c"), ("XDG_DATA_HOME", "/d"), ("XDG_RUNTIME_DIR", "/r")), "/home/u");
 
-        Assert.Equal("/c/dnm", paths.Settings);
-        Assert.Equal("/d/dnm", paths.Data);
-        Assert.Equal("/r/dnm", paths.Runtime);
+        Assert.Equal("/c/sleipnir", paths.Settings);
+        Assert.Equal("/d/sleipnir", paths.Data);
+        Assert.Equal("/r/sleipnir", paths.Runtime);
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public class AppPathsTests
     {
         var paths = AppPaths.Resolve(PlatformKind.Linux, Env(("XDG_STATE_HOME", "/s")), "/home/u");
 
-        Assert.Equal("/s/dnm", paths.Runtime);
+        Assert.Equal("/s/sleipnir", paths.Runtime);
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public class AppPathsTests
     {
         var paths = AppPaths.Resolve(PlatformKind.Linux, Env(("XDG_DATA_HOME", "")), "/home/u");
 
-        Assert.Equal("/home/u/.local/share/dnm", paths.Data);
+        Assert.Equal("/home/u/.local/share/sleipnir", paths.Data);
     }
 
     [Fact]
@@ -54,9 +54,9 @@ public class AppPathsTests
         var paths = AppPaths.Resolve(PlatformKind.Windows,
             Env(("APPDATA", @"C:\A"), ("LOCALAPPDATA", @"C:\L")), @"C:\Users\u");
 
-        Assert.Equal(@"C:\A\dnm", paths.Settings);
-        Assert.Equal(@"C:\L\dnm", paths.Data);
-        Assert.Equal(@"C:\L\dnm\run", paths.Runtime);
+        Assert.Equal(@"C:\A\sleipnir", paths.Settings);
+        Assert.Equal(@"C:\L\sleipnir", paths.Data);
+        Assert.Equal(@"C:\L\sleipnir\run", paths.Runtime);
     }
 
     [Fact]
@@ -64,9 +64,9 @@ public class AppPathsTests
     {
         var paths = AppPaths.Resolve(PlatformKind.MacOS, Env(), "/home/u");
 
-        Assert.Equal("/home/u/Library/Application Support/dnm", paths.Settings);
-        Assert.Equal("/home/u/Library/Application Support/dnm", paths.Data);
-        Assert.Equal("/home/u/Library/Application Support/dnm/run", paths.Runtime);
+        Assert.Equal("/home/u/Library/Application Support/sleipnir", paths.Settings);
+        Assert.Equal("/home/u/Library/Application Support/sleipnir", paths.Data);
+        Assert.Equal("/home/u/Library/Application Support/sleipnir/run", paths.Runtime);
     }
 
     [Fact]

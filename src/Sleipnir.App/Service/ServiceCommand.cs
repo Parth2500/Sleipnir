@@ -1,6 +1,6 @@
 namespace Sleipnir.Service;
 
-/// <summary><c>dnm service install | uninstall | status</c> for systemd user services.</summary>
+/// <summary><c>sleipnir service install | uninstall | status</c> for systemd user services.</summary>
 public sealed class ServiceCommand(ICommandRunner runner, string configHome, string executablePath, TextWriter output)
 {
     private string UnitPath => Path.Combine(configHome, "systemd", "user", SystemdUnit.Name);
@@ -17,7 +17,7 @@ public sealed class ServiceCommand(ICommandRunner runner, string configHome, str
     {
         if (executablePath.Contains('"') || executablePath.Contains('\n') || executablePath.Contains('\r'))
         {
-            output.WriteLine("Cannot install: the path to dnm contains a quote or a line break.");
+            output.WriteLine("Cannot install: the path to sleipnir contains a quote or a line break.");
             return 1;
         }
 
@@ -58,7 +58,7 @@ public sealed class ServiceCommand(ICommandRunner runner, string configHome, str
 
     private Task<int> Usage()
     {
-        output.WriteLine("Usage: dnm service install | uninstall | status");
+        output.WriteLine("Usage: sleipnir service install | uninstall | status");
         return Task.FromResult(2);
     }
 

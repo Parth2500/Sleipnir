@@ -18,7 +18,7 @@ public class DaemonProcessTests
     public async Task The_daemon_starts_publishes_where_it_listens_and_guards_its_token()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var daemon = home.Start("daemon");
 
         var info = await home.WaitForDaemonAsync(daemon);
@@ -37,7 +37,7 @@ public class DaemonProcessTests
     public async Task A_second_daemon_refuses_to_start()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var first = home.Start("daemon");
         await home.WaitForDaemonAsync(first);
 
@@ -52,7 +52,7 @@ public class DaemonProcessTests
     public async Task The_TUI_refuses_to_start_while_a_daemon_runs()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var daemon = home.Start("daemon");
         await home.WaitForDaemonAsync(daemon);
 
@@ -66,7 +66,7 @@ public class DaemonProcessTests
     public async Task A_daemon_refuses_to_start_while_the_TUI_runs()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var tui = home.Start();
         await home.WaitForLockAsync(tui);
 
@@ -80,7 +80,7 @@ public class DaemonProcessTests
     public async Task The_shutdown_endpoint_stops_the_daemon_cleanly()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var daemon = home.Start("daemon");
         var info = await home.WaitForDaemonAsync(daemon);
 
@@ -95,7 +95,7 @@ public class DaemonProcessTests
     public async Task SIGTERM_stops_the_daemon_cleanly()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var daemon = home.Start("daemon");
         await home.WaitForDaemonAsync(daemon);
 
@@ -109,7 +109,7 @@ public class DaemonProcessTests
     public async Task After_a_crash_a_new_daemon_starts_despite_the_leftover_files()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var crashed = home.Start("daemon");
         await home.WaitForDaemonAsync(crashed);
         crashed.Signal(SIGKILL);
@@ -125,22 +125,22 @@ public class DaemonProcessTests
     public async Task An_unknown_command_is_a_usage_error()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var process = home.Start("frobnicate");
 
         Assert.Equal(2, await process.WaitForExitAsync());
-        Assert.Contains("daemon", process.Output);
+        Assert.Contains("sleipnir daemon", process.Output);
     }
 
     [Fact]
     public async Task Installing_the_service_from_the_dotnet_host_is_refused_so_no_broken_unit_is_written()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var process = home.Start("service", "install");
 
         Assert.Equal(1, await process.WaitForExitAsync());
-        Assert.Contains("published dnm", process.Output);
+        Assert.Contains("published sleipnir", process.Output);
         Assert.False(Directory.Exists(Path.Combine(home.Root, "config", "systemd")));
     }
 
@@ -148,7 +148,7 @@ public class DaemonProcessTests
     public async Task The_lock_protects_the_data_folder_whatever_the_runtime_folder_is()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var first = home.Start("daemon");
         await home.WaitForDaemonAsync(first);
 
@@ -162,7 +162,7 @@ public class DaemonProcessTests
     public async Task An_empty_token_file_does_not_stop_the_daemon_from_starting()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         Directory.CreateDirectory(home.RuntimeDir);
         File.WriteAllText(Path.Combine(home.RuntimeDir, "admin.token"), "");
         using var daemon = home.Start("daemon");
@@ -177,7 +177,7 @@ public class DaemonProcessTests
     public async Task A_start_up_failure_is_one_clear_line_and_exit_code_74_not_a_crash()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         var blocker = Path.Combine(home.Root, "blocker");
         File.WriteAllText(blocker, "i am a file");
         using var daemon = home.StartWith(new Dictionary<string, string> { ["XDG_RUNTIME_DIR"] = blocker }, "daemon");
@@ -191,7 +191,7 @@ public class DaemonProcessTests
     public async Task The_TUI_clears_a_stale_daemon_json_left_by_a_crashed_daemon()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         using var crashed = home.Start("daemon");
         await home.WaitForDaemonAsync(crashed);
         crashed.Signal(SIGKILL);
@@ -209,7 +209,7 @@ public class DaemonProcessTests
     public async Task Users_survive_a_restart_the_database_is_private_and_a_regenerated_token_replaces_the_old_one()
     {
         if (!OperatingSystem.IsLinux()) return;
-        using var home = new DnmHome();
+        using var home = new SleipnirHome();
         Guid firstUser;
         string firstToken;
         using (var first = home.Start("daemon"))
@@ -221,7 +221,7 @@ public class DaemonProcessTests
             Assert.Equal("admin", me.GetProperty("role").GetString());
             firstUser = me.GetProperty("userId").GetGuid();
             Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite,
-                File.GetUnixFileMode(Path.Combine(home.Root, "data", "dnm", "dnm.db")));
+                File.GetUnixFileMode(Path.Combine(home.Root, "data", "sleipnir", "sleipnir.db")));
             await admin.PostAsync("/api/v1/server/shutdown", null);
             await first.WaitForExitAsync(10);
         }

@@ -23,7 +23,7 @@ public sealed class JsonDownloadStateStore : IDownloadStateStore
 
     public string Directory { get; }
 
-    /// <summary>Default location: <c>$XDG_DATA_HOME/dnm/downloads</c> (usually <c>~/.local/share/dnm/downloads</c>).</summary>
+    /// <summary>Default location: <c>$XDG_DATA_HOME/sleipnir/downloads</c> (usually <c>~/.local/share/sleipnir/downloads</c>).</summary>
     public static string DefaultDirectory()
     {
         var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -31,7 +31,7 @@ public sealed class JsonDownloadStateStore : IDownloadStateStore
         {
             root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
         }
-        return Path.Combine(root, "dnm", "downloads");
+        return Path.Combine(root, "sleipnir", "downloads");
     }
 
     public async Task SaveAsync(DownloadRecord record)

@@ -13,7 +13,7 @@ public class ServiceCommandTests : IDisposable
         if (Directory.Exists(_config)) Directory.Delete(_config, recursive: true);
     }
 
-    private ServiceCommand Command(string exe = "/opt/dnm") => new(_runner, _config, exe, _output);
+    private ServiceCommand Command(string exe = "/opt/sleipnir") => new(_runner, _config, exe, _output);
     private string UnitPath => Path.Combine(_config, "systemd", "user", "sleipnir.service");
 
     private sealed class FakeRunner : ICommandRunner
@@ -32,9 +32,9 @@ public class ServiceCommandTests : IDisposable
     [Fact]
     public void The_unit_runs_the_daemon_and_restarts_it_on_failure()
     {
-        const string expected = "[Unit]\nDescription=Sleipnir download manager\n\n[Service]\nExecStart=\"/opt/dnm\" daemon\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=1\n\n[Install]\nWantedBy=default.target\n";
+        const string expected = "[Unit]\nDescription=Sleipnir download manager\n\n[Service]\nExecStart=\"/opt/sleipnir\" daemon\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=1\n\n[Install]\nWantedBy=default.target\n";
 
-        Assert.Equal(expected, SystemdUnit.Render("/opt/dnm"));
+        Assert.Equal(expected, SystemdUnit.Render("/opt/sleipnir"));
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public class ServiceCommandTests : IDisposable
         var code = await Command().RunAsync(["install"]);
 
         Assert.Equal(0, code);
-        Assert.Equal(SystemdUnit.Render("/opt/dnm"), File.ReadAllText(UnitPath));
+        Assert.Equal(SystemdUnit.Render("/opt/sleipnir"), File.ReadAllText(UnitPath));
         Assert.Equal(new[] { "systemctl --user daemon-reload", "systemctl --user enable --now sleipnir.service" }, _runner.Calls);
         Assert.Contains("loginctl enable-linger", _output.ToString());
     }
@@ -68,8 +68,8 @@ public class ServiceCommandTests : IDisposable
     }
 
     [Theory]
-    [InlineData("/opt/we\"ird/dnm")]
-    [InlineData("/opt/new\nline/dnm")]
+    [InlineData("/opt/we\"ird/sleipnir")]
+    [InlineData("/opt/new\nline/sleipnir")]
     public async Task Install_refuses_paths_it_cannot_quote_safely(string exe)
     {
         var code = await Command(exe).RunAsync(["install"]);
@@ -113,7 +113,7 @@ public class ServiceCommandTests : IDisposable
         var code = await Command().RunAsync(args);
 
         Assert.Equal(2, code);
-        Assert.Contains("Usage: dnm service install | uninstall | status", _output.ToString());
+        Assert.Contains("Usage: sleipnir service install | uninstall | status", _output.ToString());
         Assert.Empty(_runner.Calls);
     }
 }

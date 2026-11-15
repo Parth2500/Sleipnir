@@ -5,17 +5,17 @@ using Sleipnir.Server.Hosting;
 
 namespace Sleipnir.Tests.Server;
 
-/// <summary>A throwaway home directory plus helpers to run the real <c>dnm</c> in it.</summary>
-public sealed class DnmHome : IDisposable
+/// <summary>A throwaway home directory plus helpers to run the real <c>sleipnir</c> in it.</summary>
+public sealed class SleipnirHome : IDisposable
 {
     public string Root { get; } = Path.Combine(Path.GetTempPath(), "sleipnir-home-" + Guid.NewGuid().ToString("N"));
-    public string RuntimeDir => Path.Combine(Root, "run", "dnm");
+    public string RuntimeDir => Path.Combine(Root, "run", "sleipnir");
 
-    public DnmHome() => Directory.CreateDirectory(Root);
+    public SleipnirHome() => Directory.CreateDirectory(Root);
 
-    public DnmProcess Start(params string[] args) => StartWith(new Dictionary<string, string>(), args);
+    public SleipnirProcess Start(params string[] args) => StartWith(new Dictionary<string, string>(), args);
 
-    public DnmProcess StartWith(IDictionary<string, string> environment, params string[] args)
+    public SleipnirProcess StartWith(IDictionary<string, string> environment, params string[] args)
     {
         var dll = typeof(Sleipnir.UI.TuiController).Assembly.Location;
         var info = new ProcessStartInfo(Environment.ProcessPath!)
@@ -33,29 +33,29 @@ public sealed class DnmHome : IDisposable
         info.Environment["XDG_CONFIG_HOME"] = Path.Combine(Root, "config");
         info.Environment["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] = "1";
         foreach (var (key, value) in environment) info.Environment[key] = value;
-        return new DnmProcess(Process.Start(info)!);
+        return new SleipnirProcess(Process.Start(info)!);
     }
 
-    public async Task<DaemonInfo> WaitForDaemonAsync(DnmProcess process, int seconds = 20)
+    public async Task<DaemonInfo> WaitForDaemonAsync(SleipnirProcess process, int seconds = 20)
     {
         var deadline = DateTime.UtcNow.AddSeconds(seconds);
         while (DateTime.UtcNow < deadline)
         {
             if (DaemonInfo.TryRead(RuntimeDir) is { } info && info.Pid == process.Id) return info;
-            if (process.HasExited) throw new InvalidOperationException("dnm exited early:\n" + process.Output);
+            if (process.HasExited) throw new InvalidOperationException("sleipnir exited early:\n" + process.Output);
             await Task.Delay(50);
         }
         throw new TimeoutException("daemon.json never appeared:\n" + process.Output);
     }
 
     /// <summary>Waits until a process holds the instance lock (the lock file exists in the data folder).</summary>
-    public async Task WaitForLockAsync(DnmProcess process, int seconds = 20)
+    public async Task WaitForLockAsync(SleipnirProcess process, int seconds = 20)
     {
-        var path = Path.Combine(Root, "data", "dnm", "daemon.lock");
+        var path = Path.Combine(Root, "data", "sleipnir", "daemon.lock");
         var deadline = DateTime.UtcNow.AddSeconds(seconds);
         while (!File.Exists(path))
         {
-            if (process.HasExited) throw new InvalidOperationException("dnm exited early:\n" + process.Output);
+            if (process.HasExited) throw new InvalidOperationException("sleipnir exited early:\n" + process.Output);
             if (DateTime.UtcNow > deadline) throw new TimeoutException("lock never appeared:\n" + process.Output);
             await Task.Delay(50);
         }
@@ -69,12 +69,12 @@ public sealed class DnmHome : IDisposable
     }
 }
 
-public sealed class DnmProcess : IDisposable
+public sealed class SleipnirProcess : IDisposable
 {
     private readonly Process _process;
     private readonly StringBuilder _output = new();
 
-    public DnmProcess(Process process)
+    public SleipnirProcess(Process process)
     {
         _process = process;
         process.OutputDataReceived += (_, e) => { lock (_output) _output.AppendLine(e.Data); };

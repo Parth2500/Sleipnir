@@ -19,8 +19,8 @@ if (args.Length > 0)
         }
         if (Path.GetFileNameWithoutExtension(Environment.ProcessPath) == "dotnet")
         {
-            // Started as `dotnet dnm.dll`: the unit would run "dotnet daemon", which doesn't exist.
-            Console.Error.WriteLine("Run the published dnm executable to install the service (see the Development Guide).");
+            // Started as `dotnet sleipnir.dll`: the unit would run "dotnet daemon", which doesn't exist.
+            Console.Error.WriteLine("Run the published sleipnir executable to install the service (see the Development Guide).");
             return 1;
         }
         var configHome = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME") is { Length: > 0 } xdg
@@ -30,9 +30,9 @@ if (args.Length > 0)
             .RunAsync(args[1..]);
     }
 
-    Console.Error.WriteLine("Usage: dnm            start the interactive UI");
-    Console.Error.WriteLine("       dnm daemon     run the download engine as a background service");
-    Console.Error.WriteLine("       dnm service install | uninstall | status   manage the systemd user service");
+    Console.Error.WriteLine("Usage: sleipnir                                   start the interactive UI");
+    Console.Error.WriteLine("       sleipnir daemon                            run the download engine as a background service");
+    Console.Error.WriteLine("       sleipnir service install | uninstall | status   manage the systemd user service");
     return 2;
 }
 

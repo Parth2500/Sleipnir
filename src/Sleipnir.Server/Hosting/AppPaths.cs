@@ -5,7 +5,7 @@ public enum PlatformKind { Linux, Windows, MacOS }
 /// <summary>Where Sleipnir keeps its settings, data and runtime files (spec §5).</summary>
 public sealed record AppPaths(string Settings, string Data, string Runtime)
 {
-    private const string AppFolder = "dnm";
+    private const string AppFolder = "sleipnir";
 
     public static AppPaths ForCurrentUser()
     {
