@@ -118,6 +118,7 @@ For how the pieces interact, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | `OwnershipTests` | The owner of a download is recorded, survives restarts, and old records load as ownerless |
 | `PublicAddressTests` | Which addresses count as public (home network, loopback, link-local, CGNAT, multicast, IPv4-mapped) |
 | `Server/ExtensionDoorTests` | Under Bifröst: identity headers required exactly, members see their own, view-only devices, no client folder, socket `0600` in a `0700` folder, members public-only |
+| `Server/PendingTests` | Pending downloads against a fake Bifröst socket: approve, reject, expiry, cancel, restarts, the approval setting |
 | `Server/ExtensionProcessTests` | Real `sleipnir extension`: refuses without Bifröst's variables, listens on the socket, opens no TCP port, stops on SIGTERM |
 | `Server/DaemonHostTests` | Token and Host checks, no CORS, throttling, port fallback (real Kestrel on loopback) |
 | `Server/DownloadEndpointTests` | Paging, validation, body limit, idempotency keys, control verbs, auth on every route |

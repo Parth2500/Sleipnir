@@ -112,6 +112,11 @@ manager:
 - Bifröst decides where files go: a client cannot choose a folder.
 - A member's download may only reach the public internet, never this machine or the home network.
 - Clients reach it at Bifröst's `/x/sleipnir/api/v1/…`.
+- A member's download waits for an admin: it shows as "waiting for approval" until the admin says
+  yes or no, on the host's screen or any device they are signed in on. If nobody answers in a day
+  it keeps waiting, and an admin can still approve it. To change who waits, put
+  `{ "approval": "everyone" }` or `{ "approval": "none" }` in `settings.json` in Sleipnir's data
+  folder (`/var/lib/bifrost/x/sleipnir/`) and restart Bifröst. The default is `"members"`.
 
 ## The screen
 

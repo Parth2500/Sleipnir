@@ -8,6 +8,20 @@
   instead of `dnm`. There is no migration: downloads saved under `~/.local/share/dnm/` are left there
   and not read.
 
+### Added: pending downloads (under Bifröst)
+
+- A download can wait for an admin's approval before it starts. Its status is `pending`, with
+  `approval` saying `waiting`, `expired` or, once cancelled by a no, `rejected`.
+- Sleipnir asks Bifröst's admin ("Download for <person>?", with the file name and the site, never a
+  folder). Approve starts the download and reject cancels it. With no answer in 24 hours the
+  download stays pending and says so.
+- **Who waits** is the `approval` setting in `settings.json` in Sleipnir's data folder under
+  Bifröst: `"members"` (the default: admins' downloads start at once), `"everyone"` or `"none"`.
+- **`POST /api/v1/downloads/{id}/approve`** and **`/reject`** let an admin decide directly.
+- Cancelling a pending download takes its question back. After a restart every pending download
+  is asked about again, once.
+- Alone, nothing is ever pending.
+
 ### Added: Sleipnir as part of Bifröst
 
 - **`sleipnir extension`** is how Bifröst runs Sleipnir. It listens only on Bifröst's private socket
