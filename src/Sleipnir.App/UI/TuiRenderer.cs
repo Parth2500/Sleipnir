@@ -116,6 +116,7 @@ public static class TuiRenderer
             DownloadStatus.Completed => ("✓", Good),
             DownloadStatus.Failed => ("✗", Bad),
             DownloadStatus.Cancelled => ("✗", Dim),
+            DownloadStatus.Pending => ("?", Warn),
             _ => ("·", Dim),
         };
 
@@ -147,7 +148,9 @@ public static class TuiRenderer
             case DownloadStatus.Completed:
                 return Plain($"done · {Format.Bytes(task.TotalBytes)}", Dim);
             case DownloadStatus.Cancelled:
-                return Plain("cancelled", Dim);
+                return Plain(task.Approval == ApprovalState.Rejected ? "rejected" : "cancelled", Dim);
+            case DownloadStatus.Pending:
+                return Plain(task.Approval == ApprovalState.Expired ? "waiting for approval (nobody answered)" : "waiting for approval", Warn);
             case DownloadStatus.Failed:
                 return Plain($"failed: {task.ErrorMessage ?? "unknown error"}", Bad);
         }

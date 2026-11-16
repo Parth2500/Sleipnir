@@ -27,6 +27,9 @@ public class DownloadTask
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? ErrorMessage { get; set; }
 
+    /// <summary>Set while the download waits for approval, and kept as <c>Rejected</c> when an admin said no.</summary>
+    public ApprovalState? Approval { get; set; }
+
     /// <summary>
     /// Segments of this download. The list is replaced as a whole (never mutated in place)
     /// so the UI thread can enumerate it safely while a download runs.

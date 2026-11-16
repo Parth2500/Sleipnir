@@ -27,10 +27,11 @@ public sealed class StubDownloadService : IDownloadService
         return task;
     }
 
-    public Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null, bool publicAddressesOnly = false)
+    public Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null, bool publicAddressesOnly = false, bool pending = false)
     {
         Calls.Add($"add {url} -> {outputDirectory}");
-        var task = Seed(new Uri(url).Segments.Last(), DownloadStatus.Queued);
+        var task = Seed(new Uri(url).Segments.Last(), pending ? DownloadStatus.Pending : DownloadStatus.Queued);
+        task.Approval = pending ? ApprovalState.Waiting : null;
         task.Url = url;
         task.OwnerId = ownerId;
         task.PublicAddressesOnly = publicAddressesOnly;
@@ -40,6 +41,25 @@ public sealed class StubDownloadService : IDownloadService
     public Task PauseDownloadAsync(Guid id) => Act("pause", id, DownloadStatus.Paused);
     public Task ResumeDownloadAsync(Guid id) => Act("resume", id, DownloadStatus.Downloading);
     public Task CancelDownloadAsync(Guid id) => Act("cancel", id, DownloadStatus.Cancelled);
+
+    public Task<bool> ApproveAsync(Guid id) => Decide("approve", id, DownloadStatus.Queued, null);
+    public Task<bool> RejectAsync(Guid id) => Decide("reject", id, DownloadStatus.Cancelled, ApprovalState.Rejected);
+
+    public Task MarkApprovalExpiredAsync(Guid id)
+    {
+        Calls.Add($"expire {Name(id)}");
+        if (GetDownload(id) is { Status: DownloadStatus.Pending } task) task.Approval = ApprovalState.Expired;
+        return Task.CompletedTask;
+    }
+
+    private Task<bool> Decide(string verb, Guid id, DownloadStatus status, ApprovalState? approval)
+    {
+        Calls.Add($"{verb} {Name(id)}");
+        if (GetDownload(id) is not { Status: DownloadStatus.Pending } task) return Task.FromResult(false);
+        task.Status = status;
+        task.Approval = approval;
+        return Task.FromResult(true);
+    }
 
     public Task RemoveDownloadAsync(Guid id)
     {

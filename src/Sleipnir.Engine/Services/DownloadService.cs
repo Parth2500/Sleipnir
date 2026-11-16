@@ -45,7 +45,7 @@ public class DownloadService : IDownloadService
         public volatile StopReason Reason = StopReason.None;
     }
 
-    public async Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null, bool publicAddressesOnly = false)
+    public async Task<Guid> AddDownloadAsync(string url, string outputDirectory, Guid? ownerId = null, bool publicAddressesOnly = false, bool pending = false)
     {
         var uri = new Uri(url);
         var fileName = FileNameResolver.FromUrl(uri);
@@ -61,15 +61,58 @@ public class DownloadService : IDownloadService
                 PublicAddressesOnly = publicAddressesOnly,
                 DestinationPath = destination,
                 Filename = Path.GetFileName(destination),
-                Status = DownloadStatus.Queued,
+                Status = pending ? DownloadStatus.Pending : DownloadStatus.Queued,
+                Approval = pending ? ApprovalState.Waiting : null,
             };
             _downloads[task.Id] = task;
-            _queue.Add(task.Id);
-            PumpQueue();
+            if (!pending)
+            {
+                _queue.Add(task.Id);
+                PumpQueue();
+            }
         }
 
         await SaveAsync(task);
         return task.Id;
+    }
+
+    public async Task<bool> ApproveAsync(Guid downloadId)
+    {
+        if (!_downloads.TryGetValue(downloadId, out var task)) return false;
+        lock (_gate)
+        {
+            if (task.Status != DownloadStatus.Pending) return false;
+            task.Status = DownloadStatus.Queued;
+            task.Approval = null;
+            _queue.Add(downloadId);
+            PumpQueue();
+        }
+        await SaveAsync(task);
+        return true;
+    }
+
+    public async Task<bool> RejectAsync(Guid downloadId)
+    {
+        if (!_downloads.TryGetValue(downloadId, out var task)) return false;
+        lock (_gate)
+        {
+            if (task.Status != DownloadStatus.Pending) return false;
+            task.Status = DownloadStatus.Cancelled;
+            task.Approval = ApprovalState.Rejected;
+        }
+        await SaveAsync(task);
+        return true;
+    }
+
+    public async Task MarkApprovalExpiredAsync(Guid downloadId)
+    {
+        if (!_downloads.TryGetValue(downloadId, out var task)) return;
+        lock (_gate)
+        {
+            if (task.Status != DownloadStatus.Pending) return;
+            task.Approval = ApprovalState.Expired;
+        }
+        await SaveAsync(task);
     }
 
     public async Task PauseDownloadAsync(Guid downloadId)
@@ -125,6 +168,7 @@ public class DownloadService : IDownloadService
         lock (_gate)
         {
             _queue.Remove(downloadId);
+            if (task.Status == DownloadStatus.Pending) task.Approval = null; // taken back by its owner, not rejected
         }
 
         await StopRunAsync(downloadId, StopReason.Cancel);
@@ -528,7 +572,8 @@ public class DownloadService : IDownloadService
             .Select(s => new SegmentRecord(s.Index, s.StartOffset, s.EndOffset, s.PersistedBytes, s.IsOpenEnded))
             .ToList(),
         task.OwnerId,
-        task.PublicAddressesOnly);
+        task.PublicAddressesOnly,
+        task.Approval);
 
     private static DownloadTask FromRecord(DownloadRecord record)
     {
@@ -549,6 +594,8 @@ public class DownloadService : IDownloadService
             Status = status,
             CreatedAt = record.CreatedAt,
             ErrorMessage = record.ErrorMessage,
+            // A pending download is asked about again after a restart, whatever came of the last question.
+            Approval = status is DownloadStatus.Pending ? ApprovalState.Waiting : record.Approval,
             Segments = record.Segments.Select(s =>
             {
                 var segment = new DownloadSegment

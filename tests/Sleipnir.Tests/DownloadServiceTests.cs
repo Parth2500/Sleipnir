@@ -294,4 +294,68 @@ public class DownloadServiceTests
             return inner.GetStreamAsync(url, from, to, ct, publicOnly);
         }
     }
+
+    [Fact]
+    public async Task A_pending_download_does_not_start_until_it_is_approved()
+    {
+        using var dir = new TempDir();
+        var network = new FakeNetworkClient(TestHelpers.RandomBytes(50_000));
+        var service = new DownloadService(network, new LocalFileStorage(), FastOptions);
+
+        var id = await service.AddDownloadAsync(Url, dir.Path, pending: true);
+        await Task.Delay(100);
+
+        Assert.Equal(DownloadStatus.Pending, service.GetDownload(id)!.Status);
+        Assert.Equal(ApprovalState.Waiting, service.GetDownload(id)!.Approval);
+        Assert.Equal(0, network.RequestCount);
+        await service.PauseDownloadAsync(id);
+        await service.ResumeDownloadAsync(id); // neither is a way around the approval
+        await service.RemoveDownloadAsync(id);
+        Assert.Equal(DownloadStatus.Pending, service.GetDownload(id)!.Status);
+
+        Assert.True(await service.ApproveAsync(id));
+        Assert.True(await TestHelpers.WaitUntil(() => IsFinished(service.GetDownload(id))));
+        Assert.Equal(DownloadStatus.Completed, service.GetDownload(id)!.Status);
+        Assert.Null(service.GetDownload(id)!.Approval);
+        Assert.False(await service.ApproveAsync(id));
+        Assert.False(await service.RejectAsync(id));
+    }
+
+    [Fact]
+    public async Task A_rejected_download_is_cancelled_and_never_fetched()
+    {
+        using var dir = new TempDir();
+        var network = new FakeNetworkClient(TestHelpers.RandomBytes(50_000));
+        var service = new DownloadService(network, new LocalFileStorage(), FastOptions);
+        var id = await service.AddDownloadAsync(Url, dir.Path, pending: true);
+
+        Assert.True(await service.RejectAsync(id));
+
+        Assert.Equal(DownloadStatus.Cancelled, service.GetDownload(id)!.Status);
+        Assert.Equal(ApprovalState.Rejected, service.GetDownload(id)!.Approval);
+        Assert.False(await service.ApproveAsync(id)); // a no stays a no
+        await Task.Delay(100);
+        Assert.Equal(0, network.RequestCount);
+    }
+
+    [Fact]
+    public async Task A_pending_download_survives_a_restart_still_pending_and_waiting()
+    {
+        using var dir = new TempDir();
+        var store = new Sleipnir.Infrastructure.Persistence.JsonDownloadStateStore(dir.File("state"));
+        var network = new FakeNetworkClient(TestHelpers.RandomBytes(50_000));
+        var first = new DownloadService(network, new LocalFileStorage(), FastOptions, store);
+        var id = await first.AddDownloadAsync(Url, dir.Path, pending: true);
+        await first.MarkApprovalExpiredAsync(id);
+        Assert.Equal(ApprovalState.Expired, first.GetDownload(id)!.Approval);
+        await first.ShutdownAsync();
+
+        var second = new DownloadService(network, new LocalFileStorage(), FastOptions, store);
+        await second.RestoreAsync();
+        await Task.Delay(100);
+
+        Assert.Equal(DownloadStatus.Pending, second.GetDownload(id)!.Status);
+        Assert.Equal(ApprovalState.Waiting, second.GetDownload(id)!.Approval); // asked again after a restart
+        Assert.Equal(0, network.RequestCount);
+    }
 }

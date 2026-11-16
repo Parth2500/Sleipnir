@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Sleipnir.Core.Interfaces;
 using Sleipnir.Server.Access;
 using Sleipnir.Server.Api;
+using Sleipnir.Server.Bifrost;
 
 namespace Sleipnir.Server.Hosting;
 
@@ -14,11 +15,13 @@ public sealed class DaemonHost : IAsyncDisposable
     private readonly DaemonOptions _options;
     private readonly IDownloadService _downloads;
     private readonly IFrontDoor _door;
+    private readonly ApprovalCoordinator? _approvals;
     private readonly TaskCompletionSource _shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private WebApplication? _app;
 
-    private DaemonHost(DaemonOptions options, IDownloadService downloads, IFrontDoor door)
+    private DaemonHost(DaemonOptions options, IDownloadService downloads, IFrontDoor door, ApprovalCoordinator? approvals)
     {
+        _approvals = approvals;
         _options = options;
         _downloads = downloads;
         _door = door;
@@ -26,8 +29,9 @@ public sealed class DaemonHost : IAsyncDisposable
 
     public int Port { get; private set; }
 
-    public static DaemonHost Create(DaemonOptions options, IDownloadService downloads, IFrontDoor door) =>
-        new(options, downloads, door);
+    /// <param name="approvals">Under Bifröst: pending downloads and the asking. Null alone, where nothing is ever pending.</param>
+    public static DaemonHost Create(DaemonOptions options, IDownloadService downloads, IFrontDoor door, ApprovalCoordinator? approvals = null) =>
+        new(options, downloads, door, approvals);
 
     public async Task StartAsync(CancellationToken ct = default)
     {
@@ -121,7 +125,9 @@ public sealed class DaemonHost : IAsyncDisposable
 
         var api = app.MapGroup("/api/v1");
         ServerEndpoints.Map(api, _door.Mode, () => _shutdown.TrySetResult());
-        new DownloadEndpoints(_downloads, _options.ResolvedDestination, _options.PerPersonRoot).Map(api);
+#pragma warning disable CA1416 // approvals exist only under Bifröst, which is not on Windows
+        new DownloadEndpoints(_downloads, _options.ResolvedDestination, _options.PerPersonRoot, _approvals).Map(api);
+#pragma warning restore CA1416
         app.MapFallback("/api/{**rest}", () => Problem.Create(404, "not_found", "No such endpoint."));
         return app;
     }

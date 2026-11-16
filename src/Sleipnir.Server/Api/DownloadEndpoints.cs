@@ -4,10 +4,13 @@ using Sleipnir.Core.Api;
 using Sleipnir.Core.Interfaces;
 using Sleipnir.Core.Models;
 using Sleipnir.Server.Access;
+using Sleipnir.Server.Bifrost;
 
 namespace Sleipnir.Server.Api;
 
-internal sealed class DownloadEndpoints(IDownloadService downloads, string defaultDestination, string? perPersonRoot)
+/// <param name="approvals">Under Bifröst with its API socket: who must wait for approval, and the asking. Null alone.</param>
+[System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+internal sealed class DownloadEndpoints(IDownloadService downloads, string defaultDestination, string? perPersonRoot, ApprovalCoordinator? approvals = null)
 {
     private const int DefaultLimit = 50, MaxLimit = 200, MaxUrls = 100, MaxKeyLength = 200;
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
@@ -26,7 +29,13 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
             Visible(c, id) is { } task ? Results.Ok(DownloadDto.From(task, includeSegments: true)) : NotFound());
         api.MapPost("/downloads/{id:guid}/pause", (HttpContext c, Guid id) => Control(c, id, downloads.PauseDownloadAsync));
         api.MapPost("/downloads/{id:guid}/resume", (HttpContext c, Guid id) => Control(c, id, downloads.ResumeDownloadAsync));
-        api.MapPost("/downloads/{id:guid}/cancel", (HttpContext c, Guid id) => Control(c, id, downloads.CancelDownloadAsync));
+        api.MapPost("/downloads/{id:guid}/cancel", (HttpContext c, Guid id) => Control(c, id, async download =>
+        {
+            await downloads.CancelDownloadAsync(download);
+            if (approvals is not null) await approvals.SettledAsync(download); // a pending one: take the question back
+        }));
+        api.MapPost("/downloads/{id:guid}/approve", (HttpContext c, Guid id) => Decide(c, id, downloads.ApproveAsync));
+        api.MapPost("/downloads/{id:guid}/reject", (HttpContext c, Guid id) => Decide(c, id, downloads.RejectAsync));
         api.MapDelete("/downloads/{id:guid}", Remove);
     }
 
@@ -116,7 +125,9 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
         if (key.Length > MaxKeyLength) return Problem.Create(400, "invalid_request", "Idempotency-Key is too long.");
         // Under Bifröst a member may not make the home machine fetch from the home network (spec §9).
         var publicOnly = perPersonRoot is not null && !me.IsAdmin;
-        if (key.Length == 0) return Results.Json(await AddAll(urls, folder, me.PersonId, publicOnly), statusCode: 201);
+        // Alone nothing is ever pending (spec §7.4): there is nobody to ask.
+        var pending = approvals?.NeedsApproval(me.IsAdmin) ?? false;
+        if (key.Length == 0) return Results.Json(await AddAll(urls, folder, me.PersonId, publicOnly, pending), statusCode: 201);
 
         var hash = IdempotencyCache<PageDto<DownloadDto>>.Hash(body);
         key = $"{me.PersonId}:{key}"; // keys are private to each person
@@ -131,7 +142,7 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
                     return Problem.Create(422, "idempotency_key_reused", "That Idempotency-Key was used for a different request.");
             }
 
-            var page = await AddAll(urls, folder, me.PersonId, publicOnly);
+            var page = await AddAll(urls, folder, me.PersonId, publicOnly, pending);
             _idempotency.Store(key, hash, page);
             return Results.Json(page, statusCode: 201);
         }
@@ -141,12 +152,13 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
         }
     }
 
-    private async Task<PageDto<DownloadDto>> AddAll(string[] urls, string folder, Guid? ownerId, bool publicOnly)
+    private async Task<PageDto<DownloadDto>> AddAll(string[] urls, string folder, Guid? ownerId, bool publicOnly, bool pending)
     {
         var added = new List<DownloadDto>();
         foreach (var url in urls)
         {
-            var id = await downloads.AddDownloadAsync(url, folder, ownerId, publicOnly);
+            var id = await downloads.AddDownloadAsync(url, folder, ownerId, publicOnly, pending);
+            if (pending) approvals?.Track(id);
             if (downloads.GetDownload(id) is { } task) added.Add(DownloadDto.From(task));
         }
         return new PageDto<DownloadDto>(added.ToArray(), null);
@@ -157,6 +169,18 @@ internal sealed class DownloadEndpoints(IDownloadService downloads, string defau
         if (Visible(context, id) is null) return NotFound();
         if (context.Caller().ViewOnly) return ViewOnly.Refusal();
         await action(id);
+        return downloads.GetDownload(id) is { } task ? Results.Ok(DownloadDto.From(task)) : NotFound();
+    }
+
+    /// <summary>An admin approves or rejects a pending download directly: for an expired question, or from any admin client.</summary>
+    private async Task<IResult> Decide(HttpContext context, Guid id, Func<Guid, Task<bool>> decide)
+    {
+        if (Visible(context, id) is null) return NotFound();
+        var me = context.Caller();
+        if (me.ViewOnly) return ViewOnly.Refusal();
+        if (!me.IsAdmin) return Problem.Create(403, "forbidden", "Only an admin approves or rejects a download.");
+        if (!await decide(id)) return Problem.Create(409, "not_pending", "That download is not waiting for approval.");
+        if (approvals is not null) await approvals.SettledAsync(id);
         return downloads.GetDownload(id) is { } task ? Results.Ok(DownloadDto.From(task)) : NotFound();
     }
 

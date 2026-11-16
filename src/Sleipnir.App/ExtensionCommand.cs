@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 using Sleipnir.Server.Access;
+using Sleipnir.Server.Bifrost;
 using Sleipnir.Server.Hosting;
 
 namespace Sleipnir;
@@ -58,12 +60,19 @@ public static class ExtensionCommand
 
         var engine = EngineFactory.Create(Path.Combine(env.DataDir, "state"));
         var options = new DaemonOptions(PerPersonRoot: Path.Combine(env.DataDir, "downloads"));
-        await using var host = DaemonHost.Create(options, engine, new BifrostDoor(env.Socket));
+
+        // With Bifröst's API socket, downloads can wait for the admin's approval (spec §7.4).
+        using var logs = LoggerFactory.Create(logging => logging.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        using var bifrost = env.ApiSocket is { } apiSocket ? new BifrostApiClient(apiSocket) : null;
+        var settings = ExtensionSettings.Load(env.DataDir, Console.Error.WriteLine);
+        await using var approvals = bifrost is null ? null : new ApprovalCoordinator(engine, bifrost, settings, logs.CreateLogger("Sleipnir.Approvals"));
+        await using var host = DaemonHost.Create(options, engine, new BifrostDoor(env.Socket), approvals);
 
         await host.StartAsync();
         try
         {
             await engine.RestoreAsync();
+            approvals?.Start(); // ask again about everything still pending
             Console.WriteLine($"Sleipnir extension listening on {env.Socket}");
             try
             {
@@ -77,6 +86,7 @@ public static class ExtensionCommand
         finally
         {
             await host.StopAsync();
+            if (approvals is not null) await approvals.DisposeAsync();
             await engine.ShutdownAsync(); // flush and save progress so the next start resumes
         }
         return 0;
