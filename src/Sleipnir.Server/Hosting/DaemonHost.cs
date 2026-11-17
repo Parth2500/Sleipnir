@@ -128,6 +128,8 @@ public sealed class DaemonHost : IAsyncDisposable
 #pragma warning disable CA1416 // approvals exist only under Bifröst, which is not on Windows
         new DownloadEndpoints(_downloads, _options.ResolvedDestination, _options.PerPersonRoot, _approvals).Map(api);
 #pragma warning restore CA1416
+        // The page for a phone or a browser; the identity check above has already admitted this caller.
+        app.MapGet("/", () => Results.Content(WebPage.Html, "text/html; charset=utf-8"));
         app.MapFallback("/api/{**rest}", () => Problem.Create(404, "not_found", "No such endpoint."));
         return app;
     }
