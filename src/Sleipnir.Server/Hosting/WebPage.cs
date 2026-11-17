@@ -44,15 +44,17 @@ internal static class WebPage
           msg(r.ok ? '' : (await r.json())?.title || `Refused (${r.status})`);
           refresh();
         }
+        let isAdmin = false;
         async function refresh() {
           try {
+            isAdmin = (await (await api('GET', 'api/v1/me')).json()).isAdmin === true;
             const r = await api('GET', 'api/v1/downloads?limit=100');
             const page = await r.json();
             document.getElementById('list').innerHTML = page.items.slice().reverse().map(d => `
               <div class="card"><div class="name">${esc(d.filename)}</div>
               <div class="meta">${label(d)}${d.status === 'pending' ? '' : d.isSizeKnown ? ` · ${size(d.bytesDownloaded)} of ${size(d.totalBytes)}` : d.bytesDownloaded ? ` · ${size(d.bytesDownloaded)}` : ''}${d.errorMessage ? ' · ' + esc(d.errorMessage) : ''}</div>
               ${d.isSizeKnown && d.status !== 'pending' ? `<progress max="${d.totalBytes}" value="${d.bytesDownloaded}"></progress>` : ''}
-              ${d.status === 'pending' && d.approval !== 'rejected' ? `<div class="row"><button onclick="act('${d.id}','approve')">Approve</button><button class="quiet" onclick="act('${d.id}','reject')">Reject</button></div>` : ''}
+              ${isAdmin && d.status === 'pending' && d.approval !== 'rejected' ? `<div class="row"><button onclick="act('${d.id}','approve')">Approve</button><button class="quiet" onclick="act('${d.id}','reject')">Reject</button></div>` : ''}
               </div>`).join('') || '<p>No downloads yet.</p>';
           } catch (e) { msg('Could not load downloads.'); }
         }

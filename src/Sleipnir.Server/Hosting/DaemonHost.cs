@@ -125,6 +125,7 @@ public sealed class DaemonHost : IAsyncDisposable
 
         var api = app.MapGroup("/api/v1");
         ServerEndpoints.Map(api, _door.Mode, () => _shutdown.TrySetResult());
+        api.MapGet("/me", (HttpContext c) => Results.Ok(new { isAdmin = c.Caller().IsAdmin })); // so a page shows an admin only what an admin can do
 #pragma warning disable CA1416 // approvals exist only under Bifröst, which is not on Windows
         new DownloadEndpoints(_downloads, _options.ResolvedDestination, _options.PerPersonRoot, _approvals).Map(api);
 #pragma warning restore CA1416
