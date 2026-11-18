@@ -5,6 +5,7 @@
     <AssemblyName>sleipnir</AssemblyName>
     <!-- Namespaces keep their historical root; renaming them is a separate change. -->
     <RootNamespace>Sleipnir</RootNamespace>
+    <ApplicationIcon>sleipnir.ico</ApplicationIcon>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerfileContext>..\..</DockerfileContext>
   </PropertyGroup>

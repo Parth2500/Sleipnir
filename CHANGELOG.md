@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.11.18 (2026-11-18)
+
+The first tagged release. The command is now `sleipnir`, the daemon can run under Bifröst or alone, and the Linux binary is attached.
+
+- The Windows executable has the Sleipnir icon.
+
 ### Changed: the command is now `sleipnir` (breaking)
 
 - The executable, the user unit, and the settings, data and runtime folders are named `sleipnir`
