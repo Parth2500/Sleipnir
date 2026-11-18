@@ -262,9 +262,8 @@ public class DaemonHostTests
 
     [Theory]
     [InlineData("/api/v1/users")]
-    [InlineData("/api/v1/me")]
     [InlineData("/api/v1/devices")]
-    public async Task Users_me_and_devices_are_gone(string path)
+    public async Task Users_and_devices_are_gone(string path)
     {
         await using var daemon = await DaemonFixture.StartAsync();
 
@@ -272,5 +271,15 @@ public class DaemonHostTests
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal("not_found", (await Json(response)).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Me_is_there_so_the_page_can_show_approve_and_reject_to_admins_only()
+    {
+        await using var daemon = await DaemonFixture.StartAsync();
+
+        var response = await daemon.Http.SendAsync(daemon.Request(HttpMethod.Get, "/api/v1/me"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }
