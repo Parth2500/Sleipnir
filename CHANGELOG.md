@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.11.19 (2026-11-18)
+
+- **Installable from Bifröst.** The release now carries `sleipnir-0.11.19.bifrost`, a signed package (manifest and
+  program) with its `.sig`, which a Bifröst home installs and updates itself from. The plain Linux tarball is still
+  attached for running Sleipnir alone.
+- `scripts/release.sh` builds both, for the owner to run with their own signing key.
+
 ## 0.11.18 (2026-11-18)
 
 The first tagged release. The command is now `sleipnir`, the daemon can run under Bifröst or alone, and the Linux binary is attached.
