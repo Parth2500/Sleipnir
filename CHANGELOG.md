@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.11.20 (2026-11-18)
+
+- **The page matches the Bifröst app.** Sleipnir's web page (what the Downloads tab shows) is restyled with the Bifröst
+  look, light and dark: tonal sections, a themed progress bar, a proper empty state, and requests that wait for an
+  approval shown first in amber with Approve and Reject. It follows the phone's dark mode instead of staying white.
+  The page title is hidden inside the app, whose bar already names the area.
+
 ## 0.11.19 (2026-11-18)
 
 - **Installable from Bifröst.** The release now carries `sleipnir-0.11.19.bifrost`, a signed package (manifest and
